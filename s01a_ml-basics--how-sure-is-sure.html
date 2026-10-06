@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>How sure is sure? · ML in ten minutes</title>
+<meta name="video-id" content="s01a">
+<meta name="section" content="ML in ten minutes">
+<style>
+  :root{--blue:#58C4DD;--yellow:#F7D96F;--grey:#8a8a8a}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0b0b0d;color:#e8e8e8;font-family:Georgia,'Times New Roman',serif;display:flex;justify-content:center;padding:24px 16px 40px;min-height:100vh}
+  .wrap{width:100%;max-width:1100px}
+  header{margin-bottom:16px;display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+  header h1{font-weight:normal;font-size:28px}
+  header h1 span{color:var(--blue)}
+  header p{color:var(--grey);font-style:italic;margin-top:4px;font-size:15px}
+  .ep{font-family:Consolas,monospace;font-size:12px;color:#666;border:1px solid #26262c;border-radius:999px;padding:4px 12px}
+  .stage{position:relative;background:#000;border-radius:12px;overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,.7),0 0 0 1px #1f1f24}
+  canvas{display:block;width:100%;height:auto;cursor:pointer;touch-action:none}
+  #bigplay{position:absolute;inset:0;margin:auto;width:96px;height:96px;border-radius:50%;border:2px solid var(--blue);background:rgba(88,196,221,.08);color:var(--blue);font-size:36px;cursor:pointer;transition:transform .25s,background .25s;padding-left:6px}
+  #bigplay:hover{transform:scale(1.08);background:rgba(88,196,221,.18)}
+  .caption{min-height:70px;padding:16px 8px 6px;text-align:center;font-size:20px;line-height:1.45;color:#ddd}
+  .controls{display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap}
+  .controls button{background:#16161a;border:1px solid #2a2a30;color:#ddd;border-radius:8px;height:38px;min-width:42px;padding:0 12px;font-size:15px;cursor:pointer;font-family:inherit;transition:border-color .2s,color .2s}
+  .controls button:hover{border-color:var(--blue);color:var(--blue)}
+  .controls button.on{border-color:var(--yellow);color:var(--yellow)}
+  .bar{position:relative;flex:1;min-width:160px;height:8px;background:#1c1c22;border-radius:6px;cursor:pointer}
+  .fill{position:absolute;left:0;top:0;bottom:0;background:var(--blue);border-radius:6px;width:0}
+  .tick{position:absolute;top:-3px;width:2px;height:14px;background:#444}
+  #time{font-family:Consolas,monospace;font-size:13px;color:var(--grey);min-width:92px;text-align:right}
+  .explore{display:none;align-items:center;gap:14px;margin-top:14px;padding:12px 16px;border:1px solid #2c2c33;border-radius:10px;background:#111115;font-family:Consolas,monospace;font-size:14px;color:#bbb}
+  .explore.show{display:flex}
+  .explore input{flex:1;accent-color:#F7D96F}
+  .explore b{color:var(--yellow);font-weight:normal;min-width:44px}
+  .chapters{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+  .chapters button{background:transparent;border:1px solid #26262c;color:#9a9a9a;border-radius:999px;padding:6px 14px;font-size:13px;cursor:pointer;font-family:Consolas,monospace;transition:all .2s}
+  .chapters button:hover{color:#fff;border-color:#555}
+  .chapters button.active{color:#000;background:var(--blue);border-color:var(--blue)}
+  .hint{color:#555;font-size:12px;margin-top:14px;font-family:Consolas,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>How sure is <span>sure</span>?</h1>
+      <p>Confidence, thresholds, and why a model can be confidently wrong</p>
+    </div>
+    <span class="ep">COM768 · Week 3 · Video 1 of 5</span>
+  </header>
+  <div class="stage">
+    <canvas id="cv" aria-label="Animated explainer"></canvas>
+    <button id="bigplay" aria-label="Play">▶</button>
+  </div>
+  <div class="caption" id="cap" aria-live="polite"></div>
+  <div class="controls">
+    <button id="play" aria-label="Play or pause">▶</button>
+    <button id="restart" aria-label="Restart">↺</button>
+    <div class="bar" id="bar"><div class="fill" id="fill"></div></div>
+    <span id="time">0:00 / 0:00</span>
+    <button id="voice">🔈 Voice off</button>
+    <button id="exploreBtn">🔍 Explore it yourself</button>
+  </div>
+  <div class="explore" id="explorePanel">
+    <span>threshold</span>
+    <input type="range" id="thr" min="0.25" max="0.95" step="0.01" value="0.60">
+    <b id="thrVal">0.60</b>
+  </div>
+  <div class="chapters" id="chapters"></div>
+  <div class="hint">Space = play/pause · ← → = chapters · click the bar to jump · Explore mode: move over the space and drag the slider</div>
+</div>
+
+<script>
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const W=1280, H=720; let dpr=1;
+function resize(){ dpr=Math.min(window.devicePixelRatio||1,2); cv.width=W*dpr; cv.height=H*dpr; }
+resize(); addEventListener('resize', resize);
+
+/* ---------- palette ---------- */
+const C={white:'#ECECEC',grey:'#7d7d7d',dim:'#444',blue:'#58C4DD',yellow:'#F7D96F',green:'#83C167',red:'#FC6255',teal:'#5CD0B3',purple:'#B189C6',orange:'#FF9A4D'};
+const TEAMS=['FINANCE','IT','ESTATES','HR'];
+const TEAM={FINANCE:C.yellow, IT:C.blue, ESTATES:C.orange, HR:C.purple};
+const hex2rgb=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16));
+const RGB=TEAMS.map(k=>hex2rgb(TEAM[k]));
+const SERIF='Georgia, "Times New Roman", serif', MONO='Consolas, "SFMono-Regular", "Liberation Mono", monospace';
+
+/* ---------- maths ---------- */
+const clamp=(x,a=0,b=1)=>Math.max(a,Math.min(b,x));
+const smooth=x=>{x=clamp(x);return x*x*(3-2*x);};
+const P=(t,s,d)=>smooth((t-s)/d);
+const lerp=(a,b,p)=>a+(b-a)*p;
+
+/* ---------- the toy model: 2D sketch of the feature space ---------- */
+const CX=560, CY=370, SCL=220;
+const toPx=(x,y)=>[CX+x*SCL, CY-y*SCL];
+const toMath=(px,py)=>[(px-CX)/SCL, (CY-py)/SCL];
+const CEN=[[.55,.45],[-.5,.5],[-.45,-.5],[.5,-.45]];   // FINANCE, IT, ESTATES, HR
+const BETA=3.5;
+function probs(x,y){
+  const s=CEN.map(([cx,cy])=>-BETA*((x-cx)**2+(y-cy)**2));
+  const m=Math.max(...s), e=s.map(v=>Math.exp(v-m)), z=e.reduce((a,b)=>a+b,0);
+  return e.map(v=>v/z);
+}
+const argmax=a=>a.indexOf(Math.max(...a));
+
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;}}
+const rnd=mulberry32(7);
+const gauss=()=>{let u=0;while(u===0)u=rnd();const v=rnd();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);};
+
+const TRAIN=[], LIVE=[];
+CEN.forEach(([cx,cy],t)=>{ for(let i=0;i<16;i++) TRAIN.push({x:cx+gauss()*.19, y:cy+gauss()*.19, t}); });
+CEN.forEach(([cx,cy],t)=>{ for(let i=0;i<25;i++){ const x=cx*.55+gauss()*.27, y=cy*.55+gauss()*.27, pr=probs(x,y), p=argmax(pr); LIVE.push({x,y,t,pred:p,conf:pr[p]}); } });
+
+/* ---------- precomputed region images ---------- */
+const GW=640, GH=360, CELL=W/GW;
+const ARG=new Uint8Array(GW*GH), CONF=new Float32Array(GW*GH);
+for(let j=0;j<GH;j++) for(let i=0;i<GW;i++){
+  const [x,y]=toMath((i+.5)*CELL,(j+.5)*CELL), pr=probs(x,y), k=argmax(pr);
+  ARG[j*GW+i]=k; CONF[j*GW+i]=pr[k];
+}
+const isEdge=k=>{const i=k%GW; return (i<GW-1 && ARG[k]!==ARG[k+1]) || (k+GW<GW*GH && ARG[k]!==ARG[k+GW]);};
+function makeImg(fn){
+  const c=document.createElement('canvas'); c.width=GW; c.height=GH;
+  const g=c.getContext('2d'), im=g.createImageData(GW,GH), d=im.data;
+  for(let k=0;k<GW*GH;k++){ const [r,gg,b,a]=fn(k); d[k*4]=r; d[k*4+1]=gg; d[k*4+2]=b; d[k*4+3]=a*255; }
+  g.putImageData(im,0,0); return c;
+}
+const flatImg=makeImg(k=> isEdge(k) ? [255,255,255,.6] : [...RGB[ARG[k]], .2]);
+const confImg=makeImg(k=>{ const a=.62*Math.pow(clamp((CONF[k]-.25)/.75),2); return isEdge(k)?[255,255,255,.1]:[...RGB[ARG[k]],a]; });
+const maskC=document.createElement('canvas'); maskC.width=GW; maskC.height=GH;
+const maskG=maskC.getContext('2d'), maskIm=maskG.createImageData(GW,GH); let lastThr=-1;
+function updateMask(thr){
+  if(Math.abs(thr-lastThr)<.002) return; lastThr=thr; const d=maskIm.data;
+  for(let k=0;k<GW*GH;k++){
+    const i=k%GW, j=(k/GW)|0, on=CONF[k]<thr, stripe=((i+j)%8)<2;
+    d[k*4]=d[k*4+1]=d[k*4+2]=170; d[k*4+3]= on ? (stripe?120:38) : 0;
+  }
+  maskG.putImageData(maskIm,0,0);
+}
+
+/* ---------- drawing helpers ---------- */
+const fontStr=(size,font,style)=>[style,size+'px',font].filter(Boolean).join(' ');
+function tw(s,size,font=SERIF,style=''){ctx.save();ctx.font=fontStr(size,font,style);const w=ctx.measureText(s).width;ctx.restore();return w;}
+function txt(s,x,y,o={}){
+  const {size=28,color=C.white,align='center',alpha=1,font=SERIF,style='',p=1}=o;
+  if(alpha<=0||p<=0) return;
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.font=fontStr(size,font,style); ctx.fillStyle=color; ctx.textAlign=align; ctx.textBaseline='middle';
+  if(p<1){ const w=ctx.measureText(s).width, x0=align==='center'?x-w/2:align==='right'?x-w:x; ctx.beginPath(); ctx.rect(x0-4,y-size,(w+8)*p,size*2); ctx.clip(); }
+  ctx.fillText(s,x,y); ctx.restore();
+}
+function wrap(s,maxW,size,font=SERIF,style=''){
+  const words=s.split(' '), lines=[]; let cur='';
+  words.forEach(w=>{ const tst=cur?cur+' '+w:w; if(tw(tst,size,font,style)>maxW && cur){lines.push(cur);cur=w;} else cur=tst; });
+  if(cur) lines.push(cur); return lines;
+}
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function box(x,y,w,h,o={}){
+  const {stroke=C.white,fill=null,alpha=1,lw=2,r=10,p=1}=o; if(alpha<=0||p<=0) return;
+  ctx.save(); ctx.globalAlpha*=alpha; rr(x,y,w,h,r); if(fill){ctx.fillStyle=fill;ctx.fill();}
+  const L=2*(w+h); if(p<1) ctx.setLineDash([L*p,L]); ctx.strokeStyle=stroke; ctx.lineWidth=lw; ctx.stroke(); ctx.restore();
+}
+function rect(x,y,w,h,color,alpha=1){ if(alpha<=0||w<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.fillStyle=color; ctx.fillRect(x,y,w,h); ctx.restore(); }
+function seg(x1,y1,x2,y2,o={}){
+  const {color=C.white,lw=2,alpha=1,p=1,dash=null}=o; if(p<=0||alpha<=0) return;
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.lineCap='round'; if(dash) ctx.setLineDash(dash);
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(lerp(x1,x2,p),lerp(y1,y2,p)); ctx.stroke(); ctx.restore();
+}
+function arrow(x1,y1,x2,y2,o={}){
+  const {color=C.white,p=1,alpha=1,lw=2.5,head=12}=o; if(p<=0||alpha<=0) return;
+  seg(x1,y1,x2,y2,{color,lw,alpha,p});
+  const x=lerp(x1,x2,p), y=lerp(y1,y2,p), a=Math.atan2(y2-y1,x2-x1);
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.fillStyle=color; ctx.beginPath(); ctx.moveTo(x,y);
+  ctx.lineTo(x-head*Math.cos(a-.4),y-head*Math.sin(a-.4)); ctx.lineTo(x-head*Math.cos(a+.4),y-head*Math.sin(a+.4)); ctx.closePath(); ctx.fill(); ctx.restore();
+}
+function dot(x,y,r,color,alpha=1){ if(alpha<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.fillStyle=color; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); ctx.restore(); }
+function ring(x,y,r,color,alpha=1,lw=2,dash=null){ if(alpha<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.strokeStyle=color; ctx.lineWidth=lw; if(dash) ctx.setLineDash(dash); ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke(); ctx.restore(); }
+function cross(x,y,r,color,alpha=1){ seg(x-r,y-r,x+r,y+r,{color,lw:2.5,alpha}); seg(x-r,y+r,x+r,y-r,{color,lw:2.5,alpha}); }
+function drawImg(img,alpha=1){ if(alpha<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.imageSmoothingEnabled=true; ctx.drawImage(img,0,0,W,H); ctx.restore(); }
+
+function grid(a=1){
+  if(a<=0) return; ctx.save(); ctx.globalAlpha*=a; ctx.lineWidth=1;
+  for(let v=-3;v<=3.5;v+=.5){ const [px]=toPx(v,0); ctx.strokeStyle=v===0?'rgba(88,196,221,.5)':'rgba(88,196,221,.14)'; ctx.beginPath(); ctx.moveTo(px,0); ctx.lineTo(px,H); ctx.stroke(); }
+  for(let v=-2;v<=2;v+=.5){ const [,py]=toPx(0,v); ctx.strokeStyle=v===0?'rgba(88,196,221,.5)':'rgba(88,196,221,.14)'; ctx.beginPath(); ctx.moveTo(0,py); ctx.lineTo(W,py); ctx.stroke(); }
+  ctx.restore();
+}
+function drawTrain(a=1,dim=1,appear=null){
+  TRAIN.forEach((p,i)=>{
+    let q=1,x=p.x,y=p.y;
+    if(appear){ q=appear(p,i); x=lerp(CEN[p.t][0],p.x,q); y=lerp(CEN[p.t][1],p.y,q); }
+    const [px,py]=toPx(x,y); dot(px,py,4.2,TEAM[TEAMS[p.t]],a*dim*q);
+  });
+}
+function teamLabels(a=1,appear=null){
+  TEAMS.forEach((k,i)=>{ const q=appear?appear(i):1; const [px,py]=toPx(CEN[i][0]*1.85,CEN[i][1]*1.85);
+    txt(k,px,py,{size:22,font:MONO,color:TEAM[k],alpha:a*q}); });
+}
+function panel(title,pr,a,o={}){
+  if(a<=0) return; const x=965,y=140,w=290,h=262;
+  box(x,y,w,h,{stroke:'#33333b',fill:'rgba(8,8,11,.92)',alpha:a});
+  const lines=wrap(title,w-36,17,SERIF,'italic');
+  lines.forEach((l,i)=>txt(l,x+18,y+28+i*22,{size:17,style:'italic',align:'left',alpha:a}));
+  const top=y+44+lines.length*22, best=argmax(pr);
+  pr.forEach((v,k)=>{ const yy=top+k*38;
+    txt(TEAMS[k],x+18,yy,{size:14,font:MONO,color:TEAM[TEAMS[k]],align:'left',alpha:a});
+    rect(x+108,yy-10,130*v,20,TEAM[TEAMS[k]],a*.9);
+    txt(v.toFixed(2),x+108+130*v+8,yy,{size:14,font:MONO,align:'left',alpha:a, color:k===best?C.white:C.grey}); });
+  if(o.thr!=null){ const c=pr[best], low=c<o.thr;
+    txt('→ '+(low?'HUMAN_REVIEW':TEAMS[best]), x+18, y+h-22, {size:17,font:MONO,align:'left',color:low?C.yellow:C.green,alpha:a}); }
+}
+function probe(px,py,a,t){ ring(px,py,10+1.5*Math.sin(t*4),C.white,a,2); dot(px,py,4,C.white,a); }
+
+/* ======================================================================
+   SCENES
+   ====================================================================== */
+const S=[
+/* 1 ─ Two moments */
+{title:'Two moments',dur:26.5,
+ caps:[[0,"Every machine-learning system lives two lives."],
+       [3,"Training happens once, or whenever we retrain. The model learns from past tickets with known answers."],
+       [9.5,"Training produces one thing: a model, saved to a file."],
+       [14,"Inference happens every time a message arrives. Thousands of times a day, using that same file."],
+       [20.5,"Today's question: when the model answers, how sure is it, and should we believe it?"]],
+ draw(t){
+   arrow(80,440,1200,440,{color:C.grey,p:P(t,.3,1.5),lw:2});
+   txt('time',1200,468,{size:18,style:'italic',color:C.grey,align:'right',alpha:P(t,1.5,.8)});
+   const ex=[['“This invoice is overdue”','FINANCE'],['“Reset my password”','IT'],['“Annual leave question”','HR'],['“Broken window in clinic 3”','ESTATES']];
+   ex.forEach(([m,k],i)=>{ const a=P(t,3.3+i*.4,.6);
+     txt(m,90,120+i*32,{size:16,style:'italic',align:'left',alpha:a});
+     txt('→ '+k,320,120+i*32,{size:15,font:MONO,color:TEAM[k],align:'left',alpha:a}); });
+   arrow(230,250,230,292,{p:P(t,5.6,.8)});
+   box(100,300,260,100,{stroke:C.teal,p:P(t,3,1.2)});
+   txt('TRAINING',230,335,{size:24,color:C.teal,alpha:P(t,3.5,.8)});
+   txt('fit() · once',230,370,{size:17,font:MONO,color:C.grey,alpha:P(t,4,.8)});
+   seg(230,400,230,440,{color:C.teal,alpha:P(t,4,.8)});
+   arrow(365,350,440,350,{p:P(t,9.6,.8)});
+   box(450,315,170,70,{stroke:C.white,p:P(t,9.9,1),alpha:P(t,9.9,.5)});
+   txt('router.joblib',535,342,{size:17,font:MONO,alpha:P(t,10.3,.6)});
+   txt('the model',535,366,{size:14,style:'italic',color:C.grey,alpha:P(t,10.3,.6)});
+   arrow(625,350,700,350,{color:C.blue,p:P(t,14,.8)});
+   txt('INFERENCE',950,300,{size:24,color:C.blue,alpha:P(t,14.2,.8)});
+   txt('predict() · every message',950,335,{size:17,font:MONO,color:C.grey,alpha:P(t,14.5,.8)});
+   for(let k=0;k<52;k++){ const a=P(t,14.6+k*.09,.15); const x=720+k*9; seg(x,430,x,450,{color:C.blue,lw:2,alpha:a}); }
+   const outs=['→ FINANCE · 0.91','→ IT · 0.78','→ HR · 0.88','→ HUMAN_REVIEW · 0.47','→ ESTATES · 0.83'];
+   if(t>15.2){ const idx=Math.floor((t-15.2)/1.1)%outs.length, ph=((t-15.2)%1.1)/1.1;
+     txt(outs[idx],950,385,{size:18,font:MONO,color:idx===3?C.yellow:C.white,alpha:Math.min(P(ph,0,.15),1-P(ph,.8,.2))*(1-P(t,20.3,.5))}); }
+   txt('When it answers, how sure is it?',640,570,{size:40,color:C.yellow,p:P(t,20.8,1.8)});
+   txt('…and should we believe it?',640,625,{size:24,style:'italic',color:C.grey,alpha:P(t,23,1)});
+ }},
+
+/* 2 ─ Messages become points */
+{title:'Messages become points',dur:24.5,
+ caps:[[0,"TF-IDF turns a message into a long list of numbers: one for every word in the vocabulary."],
+       [6.8,"A list of numbers is a position. So every message is a point in space."],
+       [12.8,"The real space has thousands of dimensions. Here we draw just two, to build intuition."],
+       [18.8,"Messages that use similar words land close together. Each team forms a cluster."]],
+ draw(t){
+   grid(P(t,6.9,1.5));
+   txt('a 2D sketch of a space with thousands of dimensions',30,695,{size:15,font:MONO,color:C.grey,align:'left',alpha:P(t,13,1)});
+   const out=1-P(t,6.8,.6);
+   txt('“My expenses have not been reimbursed”',640,110,{size:28,style:'italic',p:P(t,.2,1.5),alpha:out});
+   txt('[ 0, 0, 0.82, 0, 0, 0, …, 0, 0.95, 0, 0 ]',640,185,{size:26,font:MONO,color:C.blue,p:P(t,1.8,1.5),alpha:out});
+   txt('one number per word in the vocabulary',640,232,{size:18,style:'italic',color:C.grey,alpha:P(t,3.4,.8)*out});
+   const pm=P(t,7.2,1.4), [tx,ty]=toPx(.62,.5);
+   if(t>6.8){ dot(lerp(640,tx,pm),lerp(185,ty,pm),lerp(10,6,pm),C.white,1); }
+   txt('(x, y)',tx+16,ty-18,{size:16,font:MONO,color:C.grey,align:'left',alpha:P(t,8.6,.6)*(1-P(t,18.5,.6))});
+   drawTrain(1,1,(p,i)=>P(t,18.9+p.t*.6+(i%16)*.03,.6));
+   teamLabels(1,k=>P(t,19.3+k*.6,.6));
+ }},
+
+/* 3 ─ Drawing boundaries */
+{title:'Drawing boundaries',dur:24,
+ caps:[[0,"Training is the search for lines that separate the clusters."],
+       [4.5,"Logistic regression draws straight boundaries. Each region belongs to one team."],
+       [9.5,"Inference is now simple. A new message lands somewhere, and the region tells us the team."],
+       [16,"“My overtime payment is missing” lands in Finance territory. Prediction: FINANCE."],
+       [21,"But how sure should we be?"]],
+ draw(t){
+   grid(1);
+   const sa=P(t,.5,.6)*(1-P(t,5,.8));
+   if(sa>0){ const ang=lerp(1.3,-.05,P(t,.6,4)), L=3.2;
+     const [x1,y1]=toPx(-L*Math.cos(ang),-L*Math.sin(ang)), [x2,y2]=toPx(L*Math.cos(ang),L*Math.sin(ang));
+     seg(x1,y1,x2,y2,{color:C.white,lw:2,dash:[10,8],alpha:sa}); }
+   const r=P(t,4.6,2.6)*1100;
+   if(r>0){ ctx.save(); ctx.beginPath(); ctx.arc(CX,CY,r,0,Math.PI*2); ctx.clip(); drawImg(flatImg,1); ctx.restore(); }
+   drawTrain(1); teamLabels(1);
+   const [nx,ny]=toPx(.6,.32), pd=P(t,16,1.3);
+   if(t>15.8){ const y=lerp(-20,ny,pd); probe(nx,y,1,t);
+     txt('“My overtime payment is missing”',nx+18,y+30,{size:17,style:'italic',align:'left',alpha:P(t,16,.6)});
+     txt('→ FINANCE',nx+18,y+56,{size:18,font:MONO,color:C.yellow,align:'left',alpha:P(t,17.6,.6)}); }
+   txt('?',nx+140,ny+56,{size:40,color:C.yellow,alpha:P(t,21.2,.6)});
+ }},
+
+/* 4 ─ Confidence = distance from the boundary */
+{title:'Where confidence comes from',dur:28,
+ caps:[[0,"Confidence comes from softmax, and it depends on how far a point is from the boundaries."],
+       [6.5,"Deep inside a region, one team clearly wins. Confidence is high."],
+       [11,"Near a boundary, two teams are almost tied. “My access card isn't working” sits right between IT and Estates."],
+       [18.5,"So the shading is confidence: bright where the model is sure, dark along the borders."],
+       [24.5,"This is exactly what the threshold catches."]],
+ draw(t){
+   grid(1); const cf=P(t,18.6,2); drawImg(flatImg,1-cf); drawImg(confImg,cf);
+   drawTrain(1); teamLabels(1);
+   const A=[.62,.5], B=[-.47,.03], pm=P(t,11.2,2.2);
+   const x=lerp(A[0],B[0],pm), y=lerp(A[1],B[1],pm), [px,py]=toPx(x,y), pa=P(t,6.5,.6);
+   probe(px,py,pa,t);
+   panel(pm<.5?'A message deep inside Finance territory':'“My access card isn’t working”', probs(x,y), P(t,6.8,.8));
+   txt('IT or ESTATES?',px,py+36,{size:17,font:MONO,color:C.yellow,alpha:P(t,14,.6)});
+   txt('dark border = unsure',CX+16,CY+26,{size:16,font:MONO,color:C.white,align:'left',alpha:P(t,20,1)});
+ }},
+
+/* 5 ─ Confidently wrong */
+{title:'Confidently wrong',dur:29,
+ caps:[[0,"Now a trap. “The payment machine in the canteen is broken.”"],
+       [4.5,"It is really an Estates problem. But the word “payment” pushes it far into Finance territory."],
+       [11,"It lands deep in the bright region. Confidence: very high. And the answer is wrong."],
+       [17,"The model never asks how far a point is from its training data. It only asks which side of the line it is on."],
+       [26,"Confidence is not correctness."]],
+ draw(t){
+   grid(1); drawImg(confImg,1); drawTrain(1); teamLabels(1);
+   txt('“The payment machine in the canteen is broken.”',640,52,{size:26,style:'italic',p:P(t,.3,1.5)});
+   const Q=[1.55,1.05], [qx,qy]=toPx(...Q), pm=P(t,4.8,1.8);
+   if(t>4.6) probe(lerp(640,qx,pm),lerp(80,qy,pm),1,t);
+   panel('canteen payment machine',probs(...Q),P(t,7.3,.8));
+   ring(qx,qy,19,C.red,P(t,11.2,.6),3);
+   txt('✗ really an ESTATES job',1110,432,{size:18,color:C.red,alpha:P(t,11.5,.6)});
+   const [fx,fy]=toPx(.55,.45);
+   ring(fx,fy,.42*SCL,C.white,P(t,17.2,.8)*.8,1.5,[6,6]);
+   txt('training data',fx-.42*SCL+6,fy+.42*SCL+18,{size:15,font:MONO,color:C.grey,align:'left',alpha:P(t,17.4,.8)});
+   seg(fx,fy,qx,qy,{color:C.yellow,lw:2,dash:[6,6],p:P(t,18,1.2)});
+   txt('far from anything it learned',850,262,{size:16,style:'italic',color:C.yellow,alpha:P(t,19,.8)});
+   box(380,618,520,70,{stroke:C.yellow,fill:'rgba(0,0,0,.85)',alpha:P(t,26,.6)});
+   txt('confidence ≠ correctness',640,653,{size:38,color:C.yellow,p:P(t,26.2,1.6)});
+ }},
+
+/* 6 ─ Distribution shift */
+{title:'Distribution shift',dur:23.5,
+ caps:[[0,"The model learned from tidy examples. Real staff write differently."],
+       [4.5,"“salary not come this month please check.” Fewer familiar words, so the point lands closer to the middle."],
+       [11.5,"Live messages drift away from the training clusters. Confidence falls, and some cross a boundary."],
+       [17.5,"That is why we test with messages people really write, not only tidy sentences."]],
+ draw(t){
+   grid(1); drawImg(confImg,.8); drawTrain(1,.35); teamLabels(.6);
+   const fade=1-.65*P(t,11.3,.6);
+   const T1=[.68,.42], T2=[.22,.12], [ax,ay]=toPx(...T1), [bx,by]=toPx(...T2);
+   const p1=probs(...T1), p2=probs(...T2);
+   const a1=P(t,.4,.6), a2=P(t,4.6,.6);
+   probe(ax,ay,a1,t); probe(bx,by,a2,t);
+   txt('“My salary for this month has not been paid”',ax+18,ay-20,{size:16,style:'italic',align:'left',alpha:a1*fade});
+   txt('FINANCE · '+p1[0].toFixed(2),ax+18,ay+4,{size:15,font:MONO,color:C.green,align:'left',alpha:a1*fade});
+   txt('“salary not come this month please check”',bx+18,by+4,{size:16,style:'italic',align:'left',alpha:a2*fade});
+   txt('FINANCE · '+p2[0].toFixed(2)+'  (much less sure)',bx+18,by+28,{size:15,font:MONO,color:C.yellow,align:'left',alpha:a2*fade});
+   CEN.forEach(([cx,cy])=>{ const [x1,y1]=toPx(cx,cy), [x2,y2]=toPx(cx*.55,cy*.55); arrow(x1,y1,x2,y2,{color:C.white,lw:2,alpha:.7*P(t,11.6,.6),p:P(t,11.6,1.2)}); });
+   LIVE.forEach((p,i)=>{ const [px,py]=toPx(p.x,p.y), a=P(t,12.4+(i%25)*.06+p.t*.12,.4);
+     ring(px,py,5,TEAM[TEAMS[p.t]],a,1.8);
+     if(p.pred!==p.t) cross(px,py,7,C.red,P(t,14.6,.6)); });
+   txt('○ live message   ✗ now on the wrong side',30,695,{size:15,font:MONO,color:C.grey,align:'left',alpha:P(t,14.6,.8)});
+ }},
+
+/* 7 ─ Where to draw the line */
+{title:'Where to draw the line',dur:33,
+ caps:[[0,"So we add a rule. If confidence is below a threshold, a person reviews the ticket."],
+       [6,"Watch what happens as we move the threshold."],
+       [9,"A low threshold automates almost everything, but more mistakes slip through."],
+       [14,"A high threshold catches more mistakes, but sends far more work to people."],
+       [19.5,"There is no free choice. It is a trade-off between errors and workload."],
+       [25,"So who should set it? The engineer measures the trade-off. The service desk decides what they can live with."]],
+ thr(t){
+   if(t<6.5) return .6;
+   if(t<9) return lerp(.6,.35,P(t,6.5,2.2));
+   if(t<14) return .35;
+   if(t<19.5) return lerp(.35,.9,P(t,14,2.6));
+   return lerp(.9,.6,P(t,20.5,2.5));
+ },
+ draw(t){
+   const thr=this.thr(t);
+   grid(1); drawImg(confImg,.9); updateMask(thr); drawImg(maskC,P(t,.8,1)); drawTrain(1,.15); teamLabels(.5);
+   const la=P(t,.3,1);
+   let auto=0, wrong=0;
+   LIVE.forEach(p=>{ const [px,py]=toPx(p.x,p.y);
+     if(p.conf<thr) ring(px,py,5,'#a8a8a8',la,1.6);
+     else { auto++; if(p.pred!==p.t){ wrong++; cross(px,py,6,C.red,la); } else dot(px,py,4.6,TEAM[TEAMS[p.pred]],la); } });
+   const N=LIVE.length, x=965, y=120, w=290, a=P(t,.6,.8);
+   box(x,y,w,355,{stroke:'#33333b',fill:'rgba(8,8,11,.93)',alpha:a});
+   txt('threshold',x+18,y+32,{size:18,style:'italic',color:C.grey,align:'left',alpha:a});
+   txt(thr.toFixed(2),x+w-18,y+32,{size:30,font:MONO,color:C.yellow,align:'right',alpha:a});
+   const sx0=x+18, sx1=x+w-18, kx=lerp(sx0,sx1,(thr-.25)/.7);
+   seg(sx0,y+70,sx1,y+70,{color:'#555',lw:3,alpha:a}); dot(kx,y+70,8,C.yellow,a);
+   txt('automated',x+18,y+120,{size:17,align:'left',alpha:a});
+   txt(Math.round(auto/N*100)+'%',x+w-18,y+120,{size:20,font:MONO,color:C.green,align:'right',alpha:a});
+   txt('sent to people',x+18,y+158,{size:17,align:'left',alpha:a});
+   txt(Math.round((N-auto)/N*100)+'%',x+w-18,y+158,{size:20,font:MONO,color:'#bbb',align:'right',alpha:a});
+   txt('mistakes slip through',x+18,y+196,{size:17,align:'left',alpha:a});
+   txt(String(wrong),x+w-18,y+196,{size:20,font:MONO,color:C.red,align:'right',alpha:a});
+   const bw=w-36; rect(x+18,y+232,bw*auto/N,16,C.green,a*.85); rect(x+18+bw*auto/N,y+232,bw*(N-auto)/N,16,'#666',a*.85);
+   txt('● automated & right',x+18,y+282,{size:14,font:MONO,color:C.white,align:'left',alpha:a});
+   txt('✗ automated & wrong',x+18,y+306,{size:14,font:MONO,color:C.red,align:'left',alpha:a});
+   txt('○ human review (hatched zone)',x+18,y+330,{size:14,font:MONO,color:'#bbb',align:'left',alpha:a});
+   const ba=P(t,25.2,.8);
+   box(140,612,660,92,{stroke:'#33333b',fill:'rgba(0,0,0,.88)',alpha:ba});
+   txt('Engineer → measures the trade-off',470,642,{size:22,color:C.blue,p:P(t,25.6,1.2)});
+   txt('Service desk → decides what is acceptable',470,676,{size:22,color:C.yellow,p:P(t,28,1.4)});
+ }},
+
+/* 8 ─ Recap */
+{title:'Recap',dur:27,
+ caps:[[0,"Let's put it together."],
+       [2,"One. Training finds the boundaries. Inference asks which side a message lands on."],
+       [7.5,"Two. Confidence measures distance from a boundary, not distance from the truth."],
+       [12.5,"Three. Messages unlike the training data can be confidently wrong."],
+       [17,"Four. The threshold is a design decision, made with the people who live with it."],
+       [23,"Next video: the journey of a request."]],
+ draw(t){
+   txt('How sure is sure?',640,105,{size:46,p:P(t,.2,1.5)});
+   const L=[["Training finds the boundaries. Inference asks which side a message lands on.",2.1],
+            ["Confidence measures distance from a boundary, not distance from the truth.",7.6],
+            ["Messages unlike the training data can be confidently wrong.",12.6],
+            ["The threshold is a design decision, made with the people who live with it.",17.1]];
+   L.forEach(([s,t0],i)=>{ const y=225+i*95;
+     txt(String(i+1),150,y,{size:40,color:C.blue,alpha:P(t,t0,.6)});
+     txt(s,205,y,{size:25,align:'left',p:P(t,t0+.2,1.6)}); });
+   txt('Next  →  Video 2 · The journey of a request',640,650,{size:22,font:MONO,color:C.yellow,alpha:P(t,23.2,1)});
+ }}
+];
+
+/* ======================================================================
+   PLAYER
+   ====================================================================== */
+const START=[]; let TOTAL=0; S.forEach(s=>{START.push(TOTAL); TOTAL+=s.dur;});
+let T=0, playing=false, lastTs=null, voiceOn=false, capKey=null, explore=false, mouse=null, thrEx=.6;
+const $=id=>document.getElementById(id);
+const capEl=$('cap'), fillEl=$('fill'), timeEl=$('time'), playBtn=$('play'), bigPlay=$('bigplay'), voiceBtn=$('voice'), exBtn=$('exploreBtn');
+
+S.forEach((s,i)=>{
+  if(i>0){ const tk=document.createElement('div'); tk.className='tick'; tk.style.left=(START[i]/TOTAL*100)+'%'; $('bar').appendChild(tk); }
+  const b=document.createElement('button'); b.textContent=`${i+1} · ${s.title}`;
+  b.onclick=()=>{ setExplore(false); seek(START[i]+.001); if(!playing) setPlaying(true); };
+  $('chapters').appendChild(b);
+});
+const chapBtns=[...$('chapters').children];
+const locate=time=>{ for(let i=S.length-1;i>=0;i--) if(time>=START[i]) return {i,lt:Math.min(time-START[i],S[i].dur)}; return {i:0,lt:0}; };
+const fmt=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+
+/* ---------- NARRATOR: every word is spoken before the video moves on ---------- */
+const SAY=[[/“|”|"/g,''],[/TF-IDF/g,'T F I D F'],[/\b2xx\b/g,'two hundreds'],[/\b4xx\b/g,'four hundreds'],[/\b5xx\b/g,'five hundreds'],
+  [/HUMAN_REVIEW/g,'human review'],[/\bFINANCE\b/g,'Finance'],[/\bESTATES\b/g,'Estates'],[/\bIT\b/g,'I T'],[/\bHR\b/g,'H R'],
+  [/\bCCIO\b/g,'C C I O'],[/(\d{2}):(\d{2})/g,(m,h,mi)=>`${+h} ${mi==='00'?"o'clock":mi}`],[/7f3a/g,'7 F 3 A'],[/\//g,' slash ']];
+const NAR={u:null,speaking:false,until:0,voice:null,list:[]};
+const HOLDS=[]; S.forEach((s,i)=>{ s.caps.forEach((c,k)=>{ if(k>0) HOLDS.push(START[i]+c[0]-.02); }); HOLDS.push(START[i]+s.dur-.6); }); HOLDS.sort((a,b)=>a-b);
+const vSel=document.createElement('select'); vSel.title='Narrator voice';
+vSel.style.cssText='background:#16161a;border:1px solid #2a2a30;color:#ddd;border-radius:8px;height:38px;padding:0 8px;font-family:inherit;font-size:13px;max-width:200px';
+voiceBtn.after(vSel);
+const vNorm=l=>(l||'').replace('_','-');
+const vRank=v=>{ const l=vNorm(v.lang); return /^en-GB/i.test(l)?0:/^en-US/i.test(l)?1:/^en/i.test(l)?2:9; };
+const vGood=v=>/natural|online|google|neural|premium|enhanced/i.test(v.name)?1:0;
+const vName=v=>v.name.replace(/^(Microsoft|Google|Apple) /,'').replace(/\s*-\s*English.*$/,'').slice(0,34);
+function pickVoices(){
+  if(!('speechSynthesis' in window)) return;
+  const vs=speechSynthesis.getVoices().filter(v=>vRank(v)<9).sort((a,b)=>vRank(a)-vRank(b)||vGood(b)-vGood(a));
+  if(!vs.length) return;
+  NAR.list=vs; vSel.innerHTML='';
+  const label={0:'🇬🇧 UK English',1:'🇺🇸 US English',2:'Other English'}; let g=null, og=null;
+  vs.forEach((v,i)=>{
+    const r=vRank(v);
+    if(r!==g){ g=r; og=document.createElement('optgroup'); og.label=label[r]; vSel.appendChild(og); }
+    const o=document.createElement('option'); o.value=i; o.textContent=vName(v)+' · '+vNorm(v.lang); og.appendChild(o);
+  });
+  if(!vs.some(v=>vRank(v)===0)){
+    const og2=document.createElement('optgroup'); og2.label='No UK voice on this device';
+    const o=document.createElement('option'); o.value='help'; o.textContent='➕ How to add a UK English voice'; og2.appendChild(o); vSel.appendChild(og2);
+  }
+  const cur=NAR.voice?vs.findIndex(v=>v.name===NAR.voice.name):-1, i=cur>=0?cur:0;
+  vSel.value=String(i); NAR.voice=vs[i];
+}
+if('speechSynthesis' in window){ speechSynthesis.onvoiceschanged=pickVoices; pickVoices(); [300,1200,3500].forEach(ms=>setTimeout(pickVoices,ms)); }
+else vSel.style.display='none';
+vSel.onchange=()=>{
+  if(vSel.value==='help'){
+    capEl.textContent='To add a UK voice — Windows: Settings → Time & language → Speech → Add voices → English (United Kingdom). Mac: System Settings → Accessibility → Spoken Content → System voice → Manage Voices → English (UK). Or open this page in Microsoft Edge or Google Chrome, which include free UK voices. Then reload the page.';
+    vSel.value=String(Math.max(0,NAR.list.indexOf(NAR.voice))); return;
+  }
+  NAR.voice=NAR.list[+vSel.value]; stopVoice(); capKey=null;
+};
+function speak(s){
+  if(!voiceOn||!playing||!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const text=SAY.reduce((a,[r,v])=>a.replace(r,v),s);
+  const u=new SpeechSynthesisUtterance(text);
+  if(NAR.voice){ u.voice=NAR.voice; u.lang=NAR.voice.lang; } else u.lang='en-GB';
+  u.rate=1;
+  NAR.u=u; NAR.speaking=true; NAR.until=performance.now()+(text.split(/\s+/).length/2+4)*1000;
+  u.onend=u.onerror=()=>{ if(NAR.u===u) NAR.speaking=false; };
+  setTimeout(()=>{ if(NAR.u===u) speechSynthesis.speak(u); },80);
+}
+function stopVoice(){ NAR.speaking=false; NAR.u=null; if('speechSynthesis' in window) speechSynthesis.cancel(); }
+function narrating(){ if(!NAR.speaking) return false; if(performance.now()>NAR.until){ NAR.speaking=false; return false; } return true; }
+function updateCaption(i,lt){
+  const caps=S[i].caps; let ci=0; caps.forEach((c,k)=>{ if(lt>=c[0]) ci=k; });
+  const key=i+'-'+ci; if(key!==capKey){ capKey=key; capEl.textContent=caps[ci][1]; speak(caps[ci][1]); }
+}
+
+function renderExplore(){
+  grid(1); drawImg(confImg,1); updateMask(thrEx); drawImg(maskC,1); drawTrain(.9); teamLabels(1);
+  txt(`EXPLORE · threshold ${thrEx.toFixed(2)}`,40,38,{size:15,color:C.yellow,align:'left',font:MONO});
+  if(mouse){ const [x,y]=toMath(mouse.x,mouse.y); probe(mouse.x,mouse.y,1,performance.now()/1000);
+    panel('A message that lands here',probs(x,y),1,{thr:thrEx}); }
+  else txt('Move your mouse over the space',640,670,{size:20,style:'italic',color:C.grey});
+}
+function render(){
+  ctx.setTransform(dpr,0,0,dpr,0,0); ctx.globalAlpha=1; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+  if(explore){ renderExplore(); return; }
+  const {i,lt}=locate(T), s=S[i], last=i===S.length-1;
+  ctx.globalAlpha=Math.min(P(lt,0,.45), last?1:1-P(lt,s.dur-.55,.55));
+  s.draw(lt); ctx.globalAlpha=1;
+  txt(`${i+1} · ${s.title}`,40,38,{size:15,color:'#555',align:'left',font:MONO});
+  updateCaption(i,lt);
+  fillEl.style.width=(T/TOTAL*100)+'%'; timeEl.textContent=`${fmt(T)} / ${fmt(TOTAL)}`;
+  chapBtns.forEach((b,k)=>b.classList.toggle('active',k===i));
+}
+function setPlaying(v){
+  playing=v; playBtn.textContent=v?'❚❚':'▶';
+  if(v){ setExplore(false); bigPlay.style.display='none'; if(T>=TOTAL) seek(0); capKey=null; } else stopVoice();
+}
+function seek(time){ T=clamp(time,0,TOTAL); capKey=null; stopVoice(); }
+function setExplore(v){
+  if(explore===v) return; explore=v; exBtn.classList.toggle('on',v); $('explorePanel').classList.toggle('show',v);
+  if(v){ if(playing) setPlaying(false); bigPlay.style.display='none'; capEl.textContent='Move over the space to place a message. Drag the slider: the hatched zone goes to human review.'; }
+  else { capKey=null; mouse=null; }
+}
+function frame(ts){
+  if(playing){
+    let dt=lastTs!=null?Math.min((ts-lastTs)/1000,.1):0;
+    if(voiceOn&&narrating()){ const h=HOLDS.find(x=>x>=T-1e-6); if(h!==undefined&&T+dt>=h) dt=Math.max(0,h-T); }
+    T+=dt;
+    if(T>=TOTAL){ T=TOTAL; if(!(voiceOn&&narrating())){ setPlaying(false); bigPlay.style.display='block'; bigPlay.textContent='↺'; } }
+  }
+  lastTs=ts; render(); requestAnimationFrame(frame);
+}
+function canvasPos(e){ const r=cv.getBoundingClientRect(); return {x:(e.clientX-r.left)/r.width*W, y:(e.clientY-r.top)/r.height*H}; }
+cv.addEventListener('pointermove',e=>{ if(explore) mouse=canvasPos(e); });
+cv.addEventListener('pointerdown',e=>{ if(explore) mouse=canvasPos(e); else setPlaying(!playing); });
+cv.addEventListener('pointerleave',()=>{ if(explore && window.matchMedia('(hover:hover)').matches) mouse=null; });
+playBtn.onclick=()=>setPlaying(!playing);
+bigPlay.onclick=()=>setPlaying(true);
+$('restart').onclick=()=>{ seek(0); setPlaying(true); };
+voiceBtn.onclick=()=>{ voiceOn=!voiceOn; voiceBtn.textContent=voiceOn?'🔊 Voice on':'🔈 Voice off'; voiceBtn.classList.toggle('on',voiceOn); if(!voiceOn) stopVoice(); else capKey=null; };
+exBtn.onclick=()=>setExplore(!explore);
+$('thr').oninput=e=>{ thrEx=parseFloat(e.target.value); $('thrVal').textContent=thrEx.toFixed(2); };
+$('bar').onclick=e=>{ setExplore(false); const r=$('bar').getBoundingClientRect(); seek((e.clientX-r.left)/r.width*TOTAL); };
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT') return;
+  if(e.code==='Space'){ e.preventDefault(); setPlaying(!playing); }
+  if(e.code==='ArrowRight'){ const {i}=locate(T); if(i<S.length-1) seek(START[i+1]+.001); }
+  if(e.code==='ArrowLeft'){ const {i,lt}=locate(T); seek(START[lt<1.5&&i>0?i-1:i]+.001); }
+});
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Is someone waiting? · Scale and resilience</title>
+<meta name="video-id" content="s04b">
+<meta name="section" content="Scale and resilience">
+<style>
+  :root{--blue:#58C4DD;--yellow:#F7D96F;--grey:#8a8a8a}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0b0b0d;color:#e8e8e8;font-family:Georgia,'Times New Roman',serif;display:flex;justify-content:center;padding:24px 16px 40px;min-height:100vh}
+  .wrap{width:100%;max-width:1100px}
+  header{margin-bottom:16px;display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+  header h1{font-weight:normal;font-size:28px}
+  header h1 span{color:var(--blue)}
+  header p{color:var(--grey);font-style:italic;margin-top:4px;font-size:15px}
+  .ep{font-family:Consolas,monospace;font-size:12px;color:#666;border:1px solid #26262c;border-radius:999px;padding:4px 12px}
+  .stage{position:relative;background:#000;border-radius:12px;overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,.7),0 0 0 1px #1f1f24}
+  canvas{display:block;width:100%;height:auto;cursor:pointer}
+  #bigplay{position:absolute;inset:0;margin:auto;width:96px;height:96px;border-radius:50%;border:2px solid var(--blue);background:rgba(88,196,221,.08);color:var(--blue);font-size:36px;cursor:pointer;transition:transform .25s,background .25s;padding-left:6px}
+  #bigplay:hover{transform:scale(1.08);background:rgba(88,196,221,.18)}
+  .caption{min-height:70px;padding:16px 8px 6px;text-align:center;font-size:20px;line-height:1.45;color:#ddd}
+  .controls{display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap}
+  .controls button,.explore button{background:#16161a;border:1px solid #2a2a30;color:#ddd;border-radius:8px;height:36px;min-width:42px;padding:0 12px;font-size:14px;cursor:pointer;font-family:inherit;transition:border-color .2s,color .2s}
+  .controls button:hover,.explore button:hover{border-color:var(--blue);color:var(--blue)}
+  .controls button.on{border-color:var(--yellow);color:var(--yellow)}
+  .explore button.tab.on{border-color:var(--yellow);color:#000;background:var(--yellow)}
+  .bar{position:relative;flex:1;min-width:160px;height:8px;background:#1c1c22;border-radius:6px;cursor:pointer}
+  .fill{position:absolute;left:0;top:0;bottom:0;background:var(--blue);border-radius:6px;width:0}
+  .tick{position:absolute;top:-3px;width:2px;height:14px;background:#444}
+  #time{font-family:Consolas,monospace;font-size:13px;color:var(--grey);min-width:92px;text-align:right}
+  .explore{display:none;flex-direction:column;gap:12px;margin-top:14px;padding:14px 16px;border:1px solid #2c2c33;border-radius:10px;background:#111115;font-family:Consolas,monospace;font-size:13px;color:#bbb}
+  .explore.show{display:flex}
+  .row{display:flex;flex-wrap:wrap;align-items:center;gap:10px 20px}
+  .explore label{display:flex;align-items:center;gap:8px}
+  .explore input[type=range]{width:140px;accent-color:#F7D96F}
+  .explore input[type=checkbox]{accent-color:#F7D96F;width:16px;height:16px}
+  .explore select{background:#0b0b0d;color:#eee;border:1px solid #33333b;border-radius:6px;padding:5px 8px;font-family:inherit;font-size:13px}
+  .explore b{color:var(--yellow);font-weight:normal;min-width:30px;display:inline-block}
+  .hide{display:none!important}
+  .chapters{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+  .chapters button{background:transparent;border:1px solid #26262c;color:#9a9a9a;border-radius:999px;padding:6px 14px;font-size:13px;cursor:pointer;font-family:Consolas,monospace;transition:all .2s}
+  .chapters button:hover{color:#fff;border-color:#555}
+  .chapters button.active{color:#000;background:var(--blue);border-color:var(--blue)}
+  .hint{color:#555;font-size:12px;margin-top:14px;font-family:Consolas,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Is someone <span>waiting</span>?</h1>
+      <p>Synchronous vs asynchronous work, queues with workers, and caching</p>
+    </div>
+    <span class="ep" style="color:#F7D96F;border-color:#3a3a2a">Section: Scale and resilience</span>
+  </header>
+  <div class="stage">
+    <canvas id="cv" aria-label="Animated explainer"></canvas>
+    <button id="bigplay" aria-label="Play">▶</button>
+  </div>
+  <div class="caption" id="cap" aria-live="polite"></div>
+  <div class="controls">
+    <button id="play" aria-label="Play or pause">▶</button>
+    <button id="restart" aria-label="Restart">↺</button>
+    <div class="bar" id="bar"><div class="fill" id="fill"></div></div>
+    <span id="time">0:00 / 0:00</span>
+    <button id="voice">🔈 Voice off</button>
+    <button id="exploreBtn">🔍 Labs</button>
+  </div>
+  <div class="explore" id="explorePanel">
+    <div class="row">
+      <button class="tab on" id="tabCache">Cache lab</button>
+      <button class="tab" id="tabNight">Night job lab</button>
+    </div>
+    <div class="row" id="ctlCache">
+      <label>mix: /model-info <input type="range" id="cMix" min="0" max="100" step="10" value="60"> <b id="cMixV">60%</b></label>
+      <label><input type="checkbox" id="cInfo" checked> cache /model-info</label>
+      <label><input type="checkbox" id="cPred"> cache /predictions</label>
+      <label>time to live <select id="cTTL"><option value="0">never expires</option><option value="20">20 s</option><option value="5">5 s</option></select></label>
+      <label><input type="checkbox" id="cClear"> clear cache on retrain</label>
+      <button id="cRetrain">🔁 Retrain model</button>
+    </div>
+    <div class="row hide" id="ctlNight">
+      <label>workers <input type="range" id="nW" min="1" max="8" step="1" value="2"> <b id="nWV">2</b></label>
+      <button id="nCrash">💥 Crash a worker</button>
+      <button id="nReset">↺ Restart the job</button>
+    </div>
+  </div>
+  <div class="chapters" id="chapters"></div>
+  <div class="hint">Space = play/pause · ← → = chapters · Labs: try the cache and the overnight job yourself</div>
+</div>
+
+<script>
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const W=1280, H=720; let dpr=1;
+function resize(){ dpr=Math.min(window.devicePixelRatio||1,2); cv.width=W*dpr; cv.height=H*dpr; }
+resize(); addEventListener('resize', resize);
+
+const C={white:'#ECECEC',grey:'#7d7d7d',dim:'#444',blue:'#58C4DD',yellow:'#F7D96F',green:'#83C167',red:'#FC6255',teal:'#5CD0B3',purple:'#B189C6',orange:'#FF9A4D'};
+const SERIF='Georgia, "Times New Roman", serif', MONO='Consolas, "SFMono-Regular", "Liberation Mono", monospace';
+const clamp=(x,a=0,b=1)=>Math.max(a,Math.min(b,x));
+const smooth=x=>{x=clamp(x);return x*x*(3-2*x);};
+const P=(t,s,d)=>smooth((t-s)/d);
+const lerp=(a,b,p)=>a+(b-a)*p;
+const fmtN=n=>Math.round(n).toLocaleString('en-GB');
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;}}
+
+/* ---------- drawing helpers ---------- */
+const fontStr=(size,font,style)=>[style,size+'px',font].filter(Boolean).join(' ');
+function txt(s,x,y,o={}){
+  const {size=28,color=C.white,align='center',alpha=1,font=SERIF,style='',p=1}=o;
+  if(alpha<=0||p<=0) return;
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.font=fontStr(size,font,style); ctx.fillStyle=color; ctx.textAlign=align; ctx.textBaseline='middle';
+  if(p<1){ const w=ctx.measureText(s).width, x0=align==='center'?x-w/2:align==='right'?x-w:x; ctx.beginPath(); ctx.rect(x0-4,y-size,(w+8)*p,size*2); ctx.clip(); }
+  ctx.fillText(s,x,y); ctx.restore();
+}
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function box(x,y,w,h,o={}){
+  const {stroke=C.white,fill=null,alpha=1,lw=2,r=10,p=1,dash=null}=o; if(alpha<=0||p<=0) return;
+  ctx.save(); ctx.globalAlpha*=alpha; rr(x,y,w,h,r); if(fill){ctx.fillStyle=fill;ctx.fill();}
+  const L=2*(w+h); if(p<1) ctx.setLineDash([L*p,L]); else if(dash) ctx.setLineDash(dash);
+  ctx.strokeStyle=stroke; ctx.lineWidth=lw; ctx.stroke(); ctx.restore();
+}
+function rect(x,y,w,h,color,alpha=1){ if(alpha<=0||w<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.fillStyle=color; ctx.fillRect(x,y,w,h); ctx.restore(); }
+function seg(x1,y1,x2,y2,o={}){
+  const {color=C.white,lw=2,alpha=1,p=1,dash=null}=o; if(p<=0||alpha<=0) return;
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.lineCap='round'; if(dash) ctx.setLineDash(dash);
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(lerp(x1,x2,p),lerp(y1,y2,p)); ctx.stroke(); ctx.restore();
+}
+function arrow(x1,y1,x2,y2,o={}){
+  const {color=C.white,p=1,alpha=1,lw=2.5,head=11}=o; if(p<=0||alpha<=0) return;
+  seg(x1,y1,x2,y2,{color,lw,alpha,p});
+  const x=lerp(x1,x2,p), y=lerp(y1,y2,p), a=Math.atan2(y2-y1,x2-x1);
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.fillStyle=color; ctx.beginPath(); ctx.moveTo(x,y);
+  ctx.lineTo(x-head*Math.cos(a-.4),y-head*Math.sin(a-.4)); ctx.lineTo(x-head*Math.cos(a+.4),y-head*Math.sin(a+.4)); ctx.closePath(); ctx.fill(); ctx.restore();
+}
+function dot(x,y,r,color,alpha=1){ if(alpha<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.fillStyle=color; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); ctx.restore(); }
+function ring(x,y,r,color,alpha=1,lw=2){ if(alpha<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke(); ctx.restore(); }
+function arc(x,y,r,f,color,alpha=1,lw=2.5){ if(alpha<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.beginPath(); ctx.arc(x,y,r,-Math.PI/2,-Math.PI/2+Math.PI*2*clamp(f)); ctx.stroke(); ctx.restore(); }
+function spinner(x,y,r,t,color,alpha=1){ if(alpha<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.strokeStyle=color; ctx.lineWidth=3; ctx.lineCap='round'; ctx.beginPath(); ctx.arc(x,y,r,t*6,t*6+4.2); ctx.stroke(); ctx.restore(); }
+function poly(pts,o={}){ const {color=C.white,lw=2.5,alpha=1}=o; if(alpha<=0||pts.length<2) return;
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.lineJoin='round'; ctx.beginPath(); pts.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y)); ctx.stroke(); ctx.restore(); }
+function person(x,y,col,a){ if(a<=0) return; ring(x,y-16,11,col,a,2.5); ctx.save(); ctx.globalAlpha*=a; ctx.strokeStyle=col; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(x,y+22,20,Math.PI,0); ctx.stroke(); ctx.restore(); }
+function cylinder(cx,cy,w,h,color,a){
+  if(a<=0) return; ctx.save(); ctx.globalAlpha*=a; ctx.strokeStyle=color; ctx.lineWidth=2; ctx.fillStyle='rgba(0,0,0,.9)';
+  ctx.beginPath(); ctx.ellipse(cx,cy+h/2,w/2,12,0,0,Math.PI); ctx.lineTo(cx-w/2,cy-h/2); ctx.ellipse(cx,cy-h/2,w/2,12,0,Math.PI,0,true); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(cx,cy-h/2,w/2,12,0,0,Math.PI*2); ctx.stroke(); ctx.restore();
+}
+function tag(x,y,s,col,a,size=14){ if(a<=0) return; ctx.save(); ctx.font=fontStr(size,MONO,''); const w=ctx.measureText(s).width+20; ctx.restore();
+  box(x-w/2,y-size,w,size*2,{stroke:col,fill:'rgba(0,0,0,.92)',alpha:a,r:6}); txt(s,x,y,{size,font:MONO,color:col,alpha:a}); }
+function card(x,y,w,h,title,lines,col,a,s=0,t=0){
+  if(a<=0) return; box(x,y,w,h,{stroke:col,fill:'rgba(8,8,11,.92)',alpha:a});
+  txt(title,x+w/2,y+32,{size:21,color:col,alpha:a});
+  lines.forEach((l,i)=>txt(l,x+w/2,y+72+i*28,{size:16,alpha:a,style:'italic'}));
+}
+
+/* ======================================================================
+   BATCH (queue + workers) simulator — deterministic, seekable
+   ====================================================================== */
+const DT=.02;
+class Batch{
+  constructor(cfg){ this.cfg=cfg; this.reset(); }
+  reset(){ const c=this.cfg; this.t=0; this.queue=[]; for(let i=0;i<c.blocks;i++) this.queue.push(i); this.done=0; this.doneSet=new Set();
+    this.workers=[]; for(let k=0;k<c.maxW;k++) this.workers.push({item:null,start:0,end:0,down:0}); this.moving=[]; this.rng=mulberry32(4); this.crashed=false; }
+  crashWorker(k,t,downFor){ const w=this.workers[k]; if(w.item!=null){ this.queue.unshift(w.item); this.moving.push({kind:'back',k,t0:t}); w.item=null; } w.down=t+downFor; }
+  step(dt){
+    const c=this.cfg, t=this.t+dt, n=c.workers(t);
+    if(c.crash) c.crash(this,t);
+    if(t>=(c.startAt||0)) this.workers.forEach((w,k)=>{
+      if(k>=n||w.down>t) return;
+      if(w.item!=null&&t>=w.end){ this.moving.push({kind:'done',k,t0:t}); this.done++; this.doneSet.add(w.item); w.item=null; }
+      if(w.item==null&&this.queue.length){ w.item=this.queue.shift(); w.start=t+.5; w.end=w.start+c.dur*(.85+.3*this.rng()); this.moving.push({kind:'take',k,t0:t,id:w.item}); }
+    });
+    this.moving=this.moving.filter(m=>t-m.t0<.6); this.t=t;
+  }
+  advanceTo(T){ while(this.t+DT<=T+1e-9) this.step(DT); }
+}
+function syncB(b,t){ if(t<b.t-1e-6) b.reset(); b.advanceTo(t); }
+
+/* ---------- cache path animation (scenes 7 & 8) ---------- */
+const CL=[150,360], CA=[600,360], SV=[1000,360];
+function cacheReq(t,t0,kind,col,label,retCol){
+  const u=t-t0; if(u<0) return; let x,y,c=col,lab='';
+  const mv=(a,b,f)=>[lerp(a[0],b[0],smooth(f)),lerp(a[1],b[1],smooth(f))];
+  if(kind==='hit'){ if(u>1.05) return; [x,y]=u<.5?mv(CL,CA,u/.5):mv(CA,CL,(u-.5)/.5); if(u>=.5){c=retCol;lab=label;} }
+  else if(kind==='miss'){ if(u>2.55) return;
+    if(u<.5)[x,y]=mv(CL,CA,u/.5); else if(u<1)[x,y]=mv(CA,SV,(u-.5)/.5); else if(u<1.5)[x,y]=SV;
+    else { [x,y]=u<2?mv(SV,CA,(u-1.5)/.5):mv(CA,CL,(u-2)/.5); c=retCol; lab=label; } }
+  else { if(u>2.15) return; if(u<.8)[x,y]=mv(CL,SV,u/.8); else if(u<1.3)[x,y]=SV; else { [x,y]=mv(SV,CL,(u-1.3)/.8); c=retCol; lab=label; } }
+  dot(x,y-(lab?0:0),6,c,1); if(lab) txt(lab,x,y-20,{size:13,font:MONO,color:c});
+}
+function cacheStage(a,o={}){
+  const {cache=true,svcLabel='model v1',svcGlow=0,note='',noteCol=C.green}=o;
+  person(CL[0]-40,CL[1],C.blue,a); txt('clients',CL[0]-40,CL[1]+62,{size:15,style:'italic',color:C.grey,alpha:a});
+  seg(CL[0],CL[1],SV[0],SV[1],{color:'#24242c',lw:2,alpha:a});
+  if(cache){ box(CA[0]-100,CA[1]-60,200,120,{stroke:C.yellow,fill:'rgba(0,0,0,.9)',alpha:a*o.cacheA}); txt('cache',CA[0],CA[1]-36,{size:18,color:C.yellow,alpha:a*o.cacheA});
+    if(note) txt(note,CA[0],CA[1]+10,{size:14,font:MONO,color:noteCol,alpha:a*o.cacheA*(o.noteA??1)}); }
+  box(SV[0]-10,SV[1]-60,200,120,{stroke:svcGlow>0?C.yellow:C.teal,lw:2+svcGlow*2,fill:'rgba(0,0,0,.9)',alpha:a});
+  txt('API + model',SV[0]+90,SV[1]-18,{size:18,alpha:a}); txt(svcLabel,SV[0]+90,SV[1]+14,{size:15,font:MONO,color:C.teal,alpha:a});
+}
+
+/* ======================================================================
+   SCENES
+   ====================================================================== */
+const S=[
+/* 1 ─ Two jobs */
+{title:'Two jobs, one question',dur:21.5,
+ caps:[[0,"Two jobs arrive at Harbourside on the same day."],
+       [3.5,"Aisha submits a ticket and watches the screen, waiting for “Sent to Finance”."],
+       [9,"Meanwhile, a new model is ready, and 250,000 old tickets must be re-routed overnight. Nobody is watching that."],
+       [16.5,"The question that decides the design: is someone waiting for this answer?"]],
+ draw(t){
+   txt('SECTION · SCALE AND RESILIENCE',640,95,{size:15,font:MONO,color:C.yellow,alpha:P(t,.2,.8)*(1-P(t,3.2,.6))});
+   const a1=P(t,3.6,.8), a2=P(t,9.1,.8);
+   box(80,140,500,330,{stroke:C.blue,alpha:a1,p:a1});
+   person(170,310,C.blue,a1);
+   box(250,230,290,150,{stroke:C.white,alpha:a1});
+   txt('Ticket submitted',395,265,{size:18,alpha:a1});
+   if(t<7.6) { spinner(350,320,13,t,C.yellow,a1); txt('routing…',380,320,{size:16,font:MONO,color:C.yellow,align:'left',alpha:a1}); }
+   else txt('✓ Sent to Finance',395,320,{size:19,font:MONO,color:C.green,alpha:P(t,7.6,.4)});
+   txt('someone is watching the screen',330,430,{size:17,style:'italic',color:C.blue,alpha:a1});
+   box(700,140,500,330,{stroke:C.purple,alpha:a2,p:a2});
+   dot(790,215,26,C.yellow,a2); dot(803,206,24,'#000',a2);
+   for(let i=4;i>=0;i--) box(900+i*10,230-i*10,190,120,{stroke:C.purple,fill:'rgba(0,0,0,.95)',alpha:a2});
+   txt('250,000',995,282,{size:30,font:MONO,color:C.purple,alpha:a2}); txt('old tickets',995,318,{size:16,style:'italic',color:C.grey,alpha:a2});
+   txt('re-route with the new model, overnight',950,400,{size:17,alpha:a2});
+   txt('nobody is watching',950,430,{size:17,style:'italic',color:C.purple,alpha:a2});
+   txt('Is someone waiting for this answer?',640,570,{size:40,color:C.yellow,p:P(t,16.6,1.8)});
+ }},
+
+/* 2 ─ Synchronous */
+{title:'Synchronous',dur:26,
+ caps:[[0,"Synchronous means: send, wait, answer. The client stops and waits until the reply comes back."],
+       [6.5,"For one ticket, the model answers in a fraction of a second. Aisha barely notices."],
+       [12.5,"But if the service is slow, the person waits too. Every second of delay is a second of someone staring at a spinner."],
+       [21,"So a synchronous call needs a timeout: don't wait forever."]],
+ draw(t){
+   txt('send  →  wait…  →  answer',640,72,{size:30,p:P(t,.3,1.5)});
+   const X=s=>260+s*100;
+   const lane=(y0,start,rate,work,title,col,okText)=>{
+     const a=P(t,start-1.2,.6);
+     txt(title,60,y0-46,{size:18,color:col,align:'left',alpha:a});
+     txt('Aisha (client)',60,y0,{size:14,font:MONO,color:C.grey,align:'left',alpha:a});
+     txt('API + model',60,y0+100,{size:14,font:MONO,color:C.grey,align:'left',alpha:a});
+     seg(240,y0,1210,y0,{color:'#2a2a30',lw:1,alpha:a}); seg(240,y0+100,1210,y0+100,{color:'#2a2a30',lw:1,alpha:a});
+     if(t<start) return;
+     const e=(t-start)*rate, net=.05, total=work+2*net;
+     arrow(X(0),y0+6,X(net),y0+94,{color:C.yellow,p:clamp(e/net),lw:2});
+     if(e>net) rect(X(net),y0+90,X(net+Math.min(e-net,work))-X(net),20,col,.8);
+     if(e>net+work) arrow(X(net+work),y0+94,X(total),y0+6,{color:C.green,p:clamp((e-net-work)/net),lw:2});
+     const we=Math.min(e,total); rect(X(0),y0-10,X(we)-X(0),20,col,.35);
+     if(e<total) spinner(X(we)+18,y0,9,t,C.yellow,1);
+     else { txt(okText,X(total)+14,y0,{size:16,font:MONO,color:C.green,align:'left'});
+       txt(`waited ${work<1?(total).toFixed(1):Math.round(total)} s`,X(total)+14,y0+28,{size:13,font:MONO,color:C.grey,align:'left'}); }
+   };
+   lane(200,6.6,.22,.3,'A healthy service',C.green,'✓ Sent to Finance');
+   lane(460,12.8,1,8,'A slow service',C.red,'✓ finally');
+   const ta=P(t,21.1,.6);
+   seg(X(3),430,X(3),580,{color:C.yellow,lw:2.5,dash:[6,6],alpha:ta});
+   txt('timeout · 3 s',X(3)+10,425,{size:15,font:MONO,color:C.yellow,align:'left',alpha:ta});
+   txt('stop waiting → send the ticket to a human fallback queue',X(3)+10,610,{size:16,style:'italic',color:C.yellow,align:'left',alpha:P(t,22.4,.8)});
+ }},
+
+/* 3 ─ The 250,000 problem */
+{title:'The 250,000 problem',dur:27.5,
+ caps:[[0,"What if the overnight job used the same synchronous call, one ticket at a time?"],
+       [6,"250,000 tickets at a tenth of a second each is about seven hours of waiting, in a single line."],
+       [13,"If it crashes at ticket 180,000, where does it restart? And if it runs late, it collides with Monday 09:00."],
+       [21,"If it goes faster, it floods the API that staff depend on: 429, too many requests."]],
+ draw(t){
+   const a=P(t,.3,.8);
+   txt('one ticket → wait → next ticket → wait → …',640,80,{size:24,font:MONO,color:C.grey,alpha:a});
+   box(160,140,960,40,{stroke:'#33333b',alpha:a,r:6});
+   const f=P(t,6.2,5.8)*(1-P(t,12.6,.4));
+   rect(162,142,956*f,36,C.blue,.6);
+   txt(fmtN(250000*f)+' / 250,000',640,160,{size:16,font:MONO,alpha:a});
+   txt('250,000 × 0.1 s = 25,000 s  ≈  7 hours',640,215,{size:22,font:MONO,color:C.yellow,p:P(t,7,1.6)});
+   const H0=22, hx=h=>lerp(160,1120,(h-H0)/13), ta=P(t,13.1,.8);
+   seg(160,420,1120,420,{color:C.grey,lw:1.5,alpha:ta});
+   ['22:00','00:00','02:00','04:00','06:00','08:00','10:00'].forEach((l,i)=>{ const x=hx(22+i*2); seg(x,414,x,426,{color:C.grey,lw:1,alpha:ta}); txt(l,x,445,{size:13,font:MONO,color:C.grey,alpha:ta}); });
+   rect(hx(9),300,hx(10.5)-hx(9),110,C.red,.18*P(t,15.6,.6)); txt('Monday rush',hx(9.75),290,{size:14,font:MONO,color:C.red,alpha:P(t,15.6,.6)});
+   const r1=P(t,13.3,1.6); rect(hx(22),330,(hx(27)-hx(22))*r1,24,C.blue,.7);
+   txt('✗ crash at 180,000',hx(27),318,{size:15,font:MONO,color:C.red,alpha:P(t,14.9,.5)});
+   const r2=P(t,16,2); rect(hx(27),370,(hx(34)-hx(27))*r2,24,C.orange,.7);
+   txt('restart from zero? from 180,000? nobody knows',hx(27)+6,402,{size:13,font:MONO,color:C.orange,align:'left',alpha:P(t,16.5,.6)});
+   const fa=P(t,21.2,.6);
+   box(160,520,160,70,{stroke:C.purple,alpha:fa}); txt('batch job',240,555,{size:17,alpha:fa});
+   box(700,520,160,70,{stroke:C.teal,alpha:fa}); txt('API',780,555,{size:17,alpha:fa});
+   for(let i=0;i<7;i++){ const s=21.6+i*.15; arrow(322,528+i*9,696,528+i*9,{color:C.purple,lw:1.5,p:P(t,s,.6),alpha:fa*.8}); }
+   person(1060,560,C.blue,fa); arrow(1030,556,866,556,{color:C.blue,p:P(t,23,.6)});
+   tag(950,612,'429 · Aisha blocked',C.orange,P(t,23.8,.5));
+ }},
+
+/* 4 ─ Asynchronous */
+{title:'Asynchronous: queue + workers',dur:36,
+ batch:new Batch({blocks:250,maxW:3,dur:1.2,workers:t=>t<18.8?1:3,startAt:12.8,crash:(b,t)=>{ if(!b.crashed&&t>=23.5){ b.crashed=true; b.crashWorker(1,t,4.5); } }}),
+ caps:[[0,"Asynchronous means: hand the work over, and get on with your day."],
+       [5,"The job is submitted. The API replies at once: 202 Accepted. We have it, and the result comes later."],
+       [12.2,"The tickets go into a queue. Workers take them one at a time, at their own pace."],
+       [18.6,"Need it faster? Add workers. They share the same queue."],
+       [23,"If a worker crashes, its ticket goes back into the queue. Nothing is lost, and the job carries on."],
+       [30.2,"Staff traffic uses a separate path, so the night job never blocks the morning."]],
+ draw(t){
+   syncB(this.batch,t); const b=this.batch, a=P(t,.3,.8);
+   box(60,300,180,80,{stroke:C.purple,alpha:a}); txt('Batch job',150,328,{size:18,alpha:a}); txt('250,000 tickets',150,355,{size:13,font:MONO,color:C.grey,alpha:a});
+   box(300,300,130,80,{stroke:C.teal,alpha:a}); txt('API',365,340,{size:18,alpha:a});
+   arrow(242,322,296,322,{color:C.yellow,p:P(t,5.2,.6)}); txt('POST /jobs',269,290,{size:12,font:MONO,color:C.yellow,alpha:P(t,5.4,.5)});
+   arrow(296,360,242,360,{color:C.green,p:P(t,6.2,.6)});
+   tag(245,425,'202 Accepted · job 7f3a',C.green,P(t,6.6,.6),15);
+   txt('we have it · the result comes later',245,458,{size:14,style:'italic',color:C.grey,alpha:P(t,7.2,.6)});
+   const qa=P(t,12.2,.8);
+   box(470,305,300,70,{stroke:C.purple,alpha:qa,r:35}); txt('queue',620,290,{size:15,font:MONO,color:C.purple,alpha:qa});
+   arrow(432,340,466,340,{color:C.purple,p:P(t,12.3,.5)});
+   const fill=P(t,12.3,1.2), shown=Math.min(b.queue.length,18);
+   for(let i=0;i<shown;i++) if(i<fill*18) rect(752-i*15-5.5,334.5,11,11,C.purple,qa);
+   txt('≈ '+fmtN(b.queue.length*1000)+' waiting',620,398,{size:14,font:MONO,color:C.grey,alpha:qa});
+   const ys=[220,340,460];
+   ys.forEach((y,k)=>{
+     const wa=k===0?P(t,12.4,.6):P(t,18.8,.8); if(wa<=0) return;
+     const w=b.workers[k], down=w.down>b.t;
+     seg(772,340,838,y,{color:'#24242c',lw:1.5,alpha:wa});
+     box(840,y-35,170,70,{stroke:down?C.red:C.teal,alpha:wa});
+     txt(`worker ${k+1}`,945,y-10,{size:16,alpha:wa});
+     txt(down?'crashed · restarting':w.item!=null?'working':'idle',945,y+14,{size:12,style:'italic',color:down?C.red:C.grey,alpha:wa});
+     if(w.item!=null&&b.t>=w.start){ rect(856,y-6,12,12,C.yellow,wa); arc(862,y,13,(b.t-w.start)/(w.end-w.start),C.yellow,wa,2); }
+   });
+   const ra=P(t,12.4,.6);
+   cylinder(1150,340,150,100,C.green,ra); txt('results',1150,326,{size:16,color:C.green,alpha:ra}); txt(fmtN(b.done*1000)+' routed',1150,352,{size:13,font:MONO,color:C.green,alpha:ra});
+   b.moving.forEach(m=>{ const u=clamp((b.t-m.t0)/.5), y=ys[m.k]; let p0,p1,col;
+     if(m.kind==='take'){p0=[752,340];p1=[862,y];col=C.yellow;} else if(m.kind==='done'){p0=[1012,y];p1=[1078,340];col=C.green;} else {p0=[862,y];p1=[752,340];col=C.orange;}
+     rect(lerp(p0[0],p1[0],smooth(u))-5.5,lerp(p0[1],p1[1],smooth(u))-5.5,11,11,col,1-clamp((b.t-m.t0-.5)/.1)); });
+   txt('↩ its ticket went back to the queue · nothing lost',925,515,{size:14,font:MONO,color:C.orange,alpha:P(t,23.6,.5)*(1-P(t,29.6,.5))});
+   const la=P(t,30.3,.8);
+   person(150,120,C.blue,la); box(300,95,130,50,{stroke:C.blue,alpha:la}); txt('API · live',365,120,{size:15,alpha:la});
+   box(840,95,170,50,{stroke:C.blue,alpha:la}); txt('model',925,120,{size:15,alpha:la});
+   arrow(180,120,296,120,{color:C.blue,alpha:la}); arrow(432,120,836,120,{color:C.blue,alpha:la});
+   txt('live path · sync · staff are waiting',634,104,{size:14,font:MONO,color:C.blue,alpha:la});
+   txt('night path · async · nobody is waiting',620,560,{size:14,font:MONO,color:C.purple,alpha:la});
+ }},
+
+/* 5 ─ The cost of async */
+{title:'The cost of async',dur:26,
+ caps:[[0,"Async has its own cost. The result is not instant, so something must report back when it's done."],
+       [7.2,"The client can check: GET /jobs/7f3a. Is it queued, running, or done?"],
+       [12.5,"Or the system can send a notification when the job finishes, like an alert when a lab result is ready."],
+       [19.5,"And someone must watch the queue. A queue that only grows is a problem waiting to happen."]],
+ draw(t){
+   const a=P(t,.3,.8);
+   txt('the result comes later… so how do we find out?',640,72,{size:26,p:P(t,.4,1.6)});
+   box(80,140,200,70,{stroke:C.purple,alpha:a}); txt('Batch job',180,175,{size:17,alpha:a});
+   box(900,140,200,70,{stroke:C.teal,alpha:a}); txt('API',1000,175,{size:17,alpha:a});
+   txt('1 · ASK (polling)',80,118,{size:15,font:MONO,color:C.yellow,align:'left',alpha:P(t,7.3,.6)});
+   const polls=[['queued',C.grey],['running · 42%',C.yellow],['running · 87%',C.yellow],['done ✓',C.green]];
+   polls.forEach(([s,col],i)=>{ const s0=7.6+i*1.2;
+     if(t>s0&&t<s0+1.2){ const u=(t-s0)/1.2; if(u<.5) arrow(282,165,896,165,{color:C.yellow,p:u/.5,lw:2}); else arrow(896,190,282,190,{color:col,p:(u-.5)/.5,lw:2}); }
+     txt('GET /jobs/7f3a  →  '+s,300,245+i*28,{size:15,font:MONO,color:col,align:'left',alpha:P(t,s0+1,.3)}); });
+   const na=P(t,12.6,.6);
+   txt('2 · BE TOLD (notification)',80,388,{size:15,font:MONO,color:C.yellow,align:'left',alpha:na});
+   box(900,410,200,70,{stroke:C.green,alpha:na}); txt('workers',1000,445,{size:17,alpha:na});
+   person(180,450,C.blue,na); arrow(896,445,214,445,{color:C.green,p:P(t,13.4,1.2)});
+   tag(560,425,'🔔 job 7f3a done · 250,000 routed',C.green,P(t,14.6,.5),15);
+   const ma=P(t,19.6,.6);
+   txt('3 · WATCH THE QUEUE (monitoring)',80,540,{size:15,font:MONO,color:C.yellow,align:'left',alpha:ma});
+   box(80,560,1120,130,{stroke:'#2c2c33',alpha:ma});
+   const gx=s=>lerp(100,1180,s), gy=v=>lerp(675,580,v);
+   seg(100,gy(.7),1180,gy(.7),{color:C.red,lw:1.5,dash:[6,6],alpha:ma}); txt('alert level',1170,gy(.7)-12,{size:12,font:MONO,color:C.red,align:'right',alpha:ma});
+   const pts=[], pg=P(t,20,4.5); for(let i=0;i<=200*pg;i++){ const s=i/200; pts.push([gx(s),gy(.12+.75*s*s+.04*Math.sin(s*30))]); }
+   poly(pts,{color:C.yellow,lw:2.5,alpha:ma});
+   tag(860,610,'⚠ queue keeps growing',C.red,P(t,23.6,.5),14);
+ }},
+
+/* 6 ─ Sync or async? */
+{title:'Sync or async?',dur:30,
+ caps:[[0,"So, one question sorts every case: is someone waiting for this answer?"],
+       [5,"Route this ticket now, while Aisha watches: synchronous."],
+       [9.5,"Re-route 250,000 old tickets overnight: asynchronous."],
+       [13.5,"A lab result to notify a clinician: asynchronous. Process an uploaded image: asynchronous."],
+       [19,"Read the model's details for a dashboard: synchronous, and a perfect candidate for a cache."],
+       [25,"If the work is long, bulky or can wait, go async."]],
+ draw(t){
+   txt('Is someone waiting for this answer?',640,80,{size:34,color:C.yellow,p:P(t,.3,1.6)});
+   const ba=P(t,2,.8);
+   box(80,300,500,320,{stroke:C.blue,alpha:ba}); txt('SYNC',330,335,{size:26,font:MONO,color:C.blue,alpha:ba}); txt('yes, someone is waiting',330,368,{size:16,style:'italic',color:C.grey,alpha:ba});
+   box(700,300,500,320,{stroke:C.purple,alpha:ba}); txt('ASYNC',950,335,{size:26,font:MONO,color:C.purple,alpha:ba}); txt('no, it can happen later',950,368,{size:16,style:'italic',color:C.grey,alpha:ba});
+   const cards=[['Route this ticket now (Aisha is watching)','s',5.2],['Re-route 250,000 old tickets overnight','a',9.7],
+                ['Notify a clinician of a lab result','a',13.7],['Process an uploaded image','a',16],['Show model details on a dashboard','s',19.2]];
+   const slot={s:0,a:0};
+   cards.forEach(([s,side,t0])=>{ const idx=slot[side]++; if(t<t0) return;
+     const tx=side==='s'?330:950, ty=420+idx*58, m=P(t,t0+1.8,1);
+     const x=lerp(640,tx,m), y=lerp(200,ty,m), col=side==='s'?C.blue:C.purple;
+     box(x-210,y-22,420,44,{stroke:m>.9?col:C.white,fill:'rgba(0,0,0,.95)',alpha:P(t,t0,.4)});
+     txt(s,x,y,{size:16,alpha:P(t,t0,.4)});
+     if(s.startsWith('Show')) tag(x+170,y-30,'cache it',C.yellow,P(t,21,.5),12);
+   });
+   txt('long, bulky, or can wait  →  async',640,665,{size:26,color:C.yellow,p:P(t,25.2,1.6)});
+ }},
+
+/* 7 ─ Caching */
+{title:'Caching',dur:30,
+ caps:[[0,"Now a different kind of waste. GET /model-info is asked thousands of times a day."],
+       [6,"And the answer only changes when we retrain. So why compute it again every time?"],
+       [12,"A cache keeps a copy of a recent answer. The first request is a miss: it goes to the service, and the answer is stored."],
+       [21,"Every request after that is a hit: answered straight from the cache, much faster, with no work for the service."]],
+ draw(t){
+   const a=P(t,.3,.8), cA=P(t,11.8,.8);
+   const direct=[1.4,2.6,3.8,5,6.4,7.6,8.8,10];
+   const R=Array.from({length:18},(_,i)=>12.6+i*.85);
+   const stored=t>=R[0]+2;
+   let glow=0; direct.forEach(d=>{ if(t>d+.8&&t<d+1.3) glow=1; }); if(t>R[0]+1&&t<R[0]+1.5) glow=1;
+   cacheStage(a,{cache:true,cacheA:cA,svcGlow:glow,note:stored?'model-info → v1':'(empty)',noteCol:stored?C.green:C.grey});
+   txt('GET /model-info',640,90,{size:26,font:MONO,color:C.blue,alpha:a});
+   direct.forEach(d=>cacheReq(t,d,'direct',C.blue,'',C.blue));
+   const computed=direct.filter(d=>t>=d+1.3).length;
+   txt(`service computed the same answer ${computed} time${computed===1?'':'s'}`,640,170,{size:19,color:C.orange,alpha:P(t,2,.6)*(1-P(t,11.4,.5))});
+   R.forEach((r,i)=>cacheReq(t,r,i===0?'miss':'hit',C.blue,i===0?'miss · 400 ms':'hit · 5 ms',i===0?C.yellow:C.green));
+   const hits=R.slice(1).filter(r=>t>=r+1.05).length, miss=t>=R[0]+2.55?1:0;
+   const sa=P(t,12.6,.6);
+   box(240,520,800,120,{stroke:'#2c2c33',fill:'rgba(8,8,11,.9)',alpha:sa});
+   const col4=[['hits',hits,C.green],['misses',miss,C.yellow],['service calls',miss,C.teal],['avg response',(hits+miss)?Math.round((miss*400+hits*5)/(hits+miss))+' ms':'–',C.white]];
+   col4.forEach(([l,v,c],i)=>{ const x=340+i*200; txt(l,x,555,{size:15,style:'italic',color:C.grey,alpha:sa}); txt(String(v),x,598,{size:28,font:MONO,color:c,alpha:sa}); });
+ }},
+
+/* 8 ─ Stale answers */
+{title:'Stale answers',dur:26,
+ caps:[[0,"Then we retrain. The service now runs model version 2."],
+       [3.8,"But the cache still holds the old answer, and keeps serving it. Every hit now says version 1."],
+       [10.5,"That is a stale answer: fast, confident, and wrong."],
+       [14.5,"The fix: clear the cache whenever we retrain. Or give each entry a time to live, so it expires on its own."],
+       [22.8,"Every cache needs a plan for when the truth changes."]],
+ draw(t){
+   const a=P(t,.2,.6), v2=t>=.8, cleared=t>=14.7, restored=t>=15.4+2;
+   const note=!cleared?'model-info → v1':restored?'model-info → v2':'(cleared)';
+   const nCol=!cleared?(v2?C.red:C.green):restored?C.green:C.grey;
+   const H1=Array.from({length:13},(_,i)=>2+i*.9), H2=Array.from({length:8},(_,i)=>18.4+i*.9);
+   const glow=(t>16.4&&t<16.9)?1:0;
+   cacheStage(a,{cache:true,cacheA:1,svcLabel:v2?'model v2':'model v1',svcGlow:glow||(t>.8&&t<1.4?1:0),note,noteCol:nCol});
+   tag(SV[0]+90,SV[1]-92,'retrained → v2',C.yellow,P(t,.8,.4)*(1-P(t,3.6,.5)));
+   txt('GET /model-info',640,90,{size:26,font:MONO,color:C.blue,alpha:a});
+   H1.forEach(r=>cacheReq(t,r,'hit',C.blue,'v1 ✗',C.red));
+   cacheReq(t,15.4,'miss',C.blue,'v2',C.yellow);
+   H2.forEach(r=>cacheReq(t,r,'hit',C.blue,'v2 ✓',C.green));
+   const stale=H1.filter(r=>t>=r+1.05).length;
+   tag(640,520,`stale answers served: ${stale}`,C.red,P(t,4,.5),18);
+   txt('fast · confident · wrong',640,575,{size:24,color:C.red,p:P(t,10.6,1.4)});
+   tag(CA[0],CA[1]-95,'🧹 clear on retrain',C.yellow,P(t,14.6,.4)*(1-P(t,22.4,.5)),15);
+   txt('or: time to live (TTL) · each entry expires after, say, 1 hour',640,640,{size:18,font:MONO,color:C.grey,alpha:P(t,18.8,.8)});
+ }},
+
+/* 9 ─ Cache POST /predictions? */
+{title:'Cache POST /predictions?',dur:31,
+ caps:[[0,"The slide asks: would you cache POST /predictions?"],
+       [3.5,"Most messages are different. A cache keyed on the exact text would almost never get a hit."],
+       [10.3,"Even an identical message is only safe to reuse until the next retrain."],
+       [15.5,"And the cache would now store staff messages: personal data, in one more place. Who can read it, and for how long?"],
+       [24,"Usually, the answer is no. A cache is for answers that are asked often and change rarely."]],
+ draw(t){
+   txt('POST /predictions  →  cache it?',640,72,{size:30,font:MONO,p:P(t,.3,1.5)});
+   const msgs=['“laptop won’t start”','“overtime missing”','“leaking radiator ward 4”','“reset my password pls”','“parental leave days?”','“salary not come”'];
+   msgs.forEach((m,i)=>{ const s=3.7+i*.7, a=P(t,s,.4);
+     txt(m,420,135+i*24,{size:15,style:'italic',align:'right',alpha:a});
+     txt('miss',450,135+i*24,{size:13,font:MONO,color:C.red,align:'left',alpha:a}); });
+   tag(800,190,'hit rate ≈ 0%',C.red,P(t,8,.5),18);
+   const cs=[[80,'Few hits',['every message is different','the exact text rarely repeats'],C.orange,5],
+             [460,'Stale after retrain',['same text, new model,','maybe a different team'],C.orange,10.5],
+             [840,'Personal data',['staff messages stored','in one more place','who can read them? how long?'],C.red,15.7]];
+   cs.forEach(([x,ti,l,col,s])=>card(x,300,360,200,ti,l,col,P(t,s,.6)));
+   txt('→ where does this data live? its own design question',1020,525,{size:15,font:MONO,color:C.purple,alpha:P(t,20,.6)});
+   const fa=P(t,24.2,.6);
+   txt('cache what is asked often and changes rarely',640,585,{size:26,color:C.yellow,p:P(t,24.2,1.6)});
+   tag(520,645,'GET /model-info  ✓',C.green,fa,17); tag(780,645,'POST /predictions  ✗',C.red,fa,17);
+ }},
+
+/* 10 ─ Breakouts B and C */
+{title:'Design challenges',dur:33.5,
+ caps:[[0,"Design challenge one: 250,000 old tickets, overnight, with a new model."],
+       [4.5,"Component: an async queue with workers. It sits off the live path, between the batch job and the model."],
+       [12,"It protects live staff traffic, and survives crashes. New problem: results come later, so we need status and monitoring."],
+       [20,"Design challenge two: /model-info, requested thousands of times. Component: a cache in front of it."],
+       [26.5,"It protects the service from repeated work. New problem: stale answers, unless we clear it on retrain."]],
+ draw(t){
+   const col=(x,title,rows,col,t0)=>{
+     const a=P(t,t0,.6); box(x,90,560,590,{stroke:col,alpha:a,p:a});
+     txt(title,x+280,125,{size:22,color:col,alpha:a});
+     let y=185;
+     rows.forEach(([k,lines,s])=>{ const ra=P(t,s,.6);
+       txt(k,x+28,y,{size:13,font:MONO,color:k==='NEW PROBLEMS'?C.orange:C.yellow,align:'left',alpha:ra});
+       lines.forEach((l,i)=>txt(l,x+28,y+30+i*26,{size:17,align:'left',p:P(t,s+.2,1.2)}));
+       y+=58+lines.length*26; });
+   };
+   col(60,'Challenge 1 · 250,000 tickets overnight',[
+     ['COMPONENT',['Async queue + workers'],4.6],
+     ['WHERE IT SITS',['Off the live path, between the','batch job and the model'],7.5],
+     ['PROTECTS AGAINST',['Slowing live staff traffic','A crash halfway through'],12.2],
+     ['NEW PROBLEMS',['Results arrive later','Need job status or notifications','Must monitor the queue'],15.5]],C.purple,.3);
+   col(660,'Challenge 2 · /model-info, thousands of times',[
+     ['COMPONENT',['Cache in front of GET /model-info'],20.2],
+     ['WHERE IT SITS',['Between clients and the API'],22.5],
+     ['PROTECTS AGAINST',['Repeated identical work','Slow responses'],26.7],
+     ['NEW PROBLEMS',['Stale answers after retraining','→ clear on retrain, or set a TTL'],29]],C.yellow,20);
+ }},
+
+/* 11 ─ Recap */
+{title:'Recap',dur:28,
+ caps:[[0,"Let's put it together."],
+       [2,"One. Ask first: is someone waiting for this answer?"],
+       [6,"Two. Sync when a person waits, with a timeout. Async when the work is long, bulky or can wait."],
+       [13,"Three. A queue with workers survives crashes and protects the live path, but results come later."],
+       [19.5,"Four. Cache what is asked often and changes rarely, and clear it when the truth changes."],
+       [25,"Go deeper: what happens when requests arrive faster than they can be served, and how to plan for failure."]],
+ draw(t){
+   txt('Is someone waiting?',640,105,{size:46,p:P(t,.2,1.5)});
+   const L=[["Ask first: is someone waiting for this answer?",2.1],
+            ["Sync + timeout when a person waits. Async when it can wait.",6.1],
+            ["Queue + workers: survives crashes, results come later.",13.1],
+            ["Cache what is asked often and changes rarely. Clear it on retrain.",19.6]];
+   L.forEach(([s,t0],i)=>{ const y=225+i*95;
+     txt(String(i+1),150,y,{size:40,color:C.blue,alpha:P(t,t0,.6)});
+     txt(s,205,y,{size:25,align:'left',p:P(t,t0+.2,1.6)}); });
+   txt('Go deeper',640,622,{size:16,font:MONO,color:C.grey,alpha:P(t,25.2,1)});
+   txt('Monday, 09:00 · A plan for failure · The journey of a request',640,655,{size:18,font:MONO,color:C.yellow,alpha:P(t,25.8,1)});
+ }}
+];
+
+/* ======================================================================
+   LABS
+   ====================================================================== */
+const $=id=>document.getElementById(id);
+let lab='cache';
+/* --- cache lab --- */
+const CLAB={reqs:[],cache:new Map(),version:1,t:0,next:0,log:[],rng:mulberry32(21),staleSince:0,id:0};
+function cacheCfg(){ return {mix:parseInt($('cMix').value)/100,info:$('cInfo').checked,pred:$('cPred').checked,ttl:parseFloat($('cTTL').value),clear:$('cClear').checked}; }
+function stepCacheLab(dt){
+  const L=CLAB, c=cacheCfg(), t=L.t+dt;
+  while(L.next<=t){ const info=L.rng()<c.mix; L.reqs.push({id:L.id++,ep:info?'info':'pred',key:info?'info':'m'+Math.floor(L.rng()*400),ph:'in',t0:L.next}); L.next+=-Math.log(1-L.rng())/3; }
+  for(const r of L.reqs){
+    if(r.ph==='in'&&t-r.t0>=.5){
+      const cacheable=r.ep==='info'?c.info:c.pred; let e=L.cache.get(r.key);
+      if(e&&c.ttl>0&&t-e.at>c.ttl){ L.cache.delete(r.key); e=null; }
+      if(cacheable&&e){ r.ph='hitBack'; r.t0=t; r.stale=e.v<L.version; r.v=e.v; L.log.push({t,ep:r.ep,hit:true,stale:r.stale}); if(r.stale) L.staleSince++; }
+      else { r.ph='toSvc'; r.t0=t; r.cacheable=cacheable; }
+    } else if(r.ph==='toSvc'&&t-r.t0>=.5){ r.ph='work'; r.t0=t; }
+    else if(r.ph==='work'&&t-r.t0>=.5){ r.v=L.version; if(r.cacheable) L.cache.set(r.key,{v:L.version,at:t}); r.ph='missBack'; r.t0=t; L.log.push({t,ep:r.ep,hit:false,svc:true}); }
+    else if(r.ph==='hitBack'&&t-r.t0>=.5) r.ph='done';
+    else if(r.ph==='missBack'&&t-r.t0>=1) r.ph='done';
+  }
+  L.reqs=L.reqs.filter(r=>r.ph!=='done'); L.log=L.log.filter(e=>e.t>t-20); L.t=t;
+}
+function renderCacheLab(dt){
+  stepCacheLab(Math.min(dt,.1)); const L=CLAB, c=cacheCfg(), t=L.t;
+  const info=L.cache.get('info'), msgs=[...L.cache.keys()].filter(k=>k!=='info').length;
+  cacheStage(1,{cache:true,cacheA:1,svcLabel:'model v'+L.version,note:'',svcGlow:L.reqs.some(r=>r.ph==='work')?1:0});
+  txt(info?`model-info → v${info.v}`:'model-info: –',CA[0],CA[1]+4,{size:14,font:MONO,color:info?(info.v<L.version?C.red:C.green):C.grey});
+  txt(`messages stored: ${msgs}`,CA[0],CA[1]+28,{size:13,font:MONO,color:msgs>0?C.red:C.grey});
+  L.reqs.forEach(r=>{
+    const base=r.ep==='info'?C.blue:C.white, u=t-r.t0; let x,y,col=base;
+    const mv=(a,b,f)=>[lerp(a[0],b[0],smooth(f)),lerp(a[1],b[1],smooth(f))];
+    if(r.ph==='in') [x,y]=mv(CL,CA,u/.5);
+    else if(r.ph==='hitBack'){ [x,y]=mv(CA,CL,u/.5); col=r.stale?C.red:C.green; }
+    else if(r.ph==='toSvc') [x,y]=mv(CA,SV,u/.5);
+    else if(r.ph==='work') [x,y]=SV;
+    else { [x,y]=u<.5?mv(SV,CA,u/.5):mv(CA,CL,(u-.5)/.5); col=C.yellow; }
+    const jy=((r.id*13)%5-2)*8; dot(x,y+jy,5,col,1);
+  });
+  const lg=L.log, hr=ep=>{ const a=lg.filter(e=>e.ep===ep); return a.length?Math.round(a.filter(e=>e.hit).length/a.length*100)+'%':'–'; };
+  const avg=lg.length?Math.round(lg.reduce((s,e)=>s+(e.hit?5:400),0)/lg.length):0, svc=lg.filter(e=>e.svc).length/20;
+  txt('CACHE LAB · last 20 seconds',40,38,{size:15,font:MONO,color:C.yellow,align:'left'});
+  const stats=[['/model-info hit rate',hr('info'),C.blue],['/predictions hit rate',hr('pred'),C.white],['avg response',avg+' ms',C.green],['service calls',svc.toFixed(1)+'/s',C.teal],['stale answers',String(L.staleSince),L.staleSince?C.red:C.grey]];
+  box(80,520,1120,120,{stroke:'#2c2c33',fill:'rgba(8,8,11,.9)'});
+  stats.forEach(([l,v,col],i)=>{ const x=192+i*224; txt(l,x,553,{size:14,style:'italic',color:C.grey}); txt(v,x,598,{size:26,font:MONO,color:col}); });
+  txt('● /model-info   ○ /predictions   green = hit · yellow = computed · red = stale',640,670,{size:13,font:MONO,color:C.grey});
+  if(c.pred&&msgs>0) txt('⚠ staff messages are now stored in the cache (personal data)',640,470,{size:16,style:'italic',color:C.red});
+}
+/* --- night job lab --- */
+let nW=2;
+const NB=new Batch({blocks:250,maxW:8,dur:1,workers:()=>nW,startAt:.3});
+function renderNightLab(dt){
+  NB.advanceTo(NB.t+Math.min(dt,.1)); const b=NB, t=b.t;
+  txt('NIGHT JOB LAB · 250,000 tickets · each square = 1,000',40,38,{size:15,font:MONO,color:C.yellow,align:'left'});
+  const inProg=new Set(b.workers.filter(w=>w.item!=null).map(w=>w.item));
+  for(let i=0;i<250;i++){ const cx=70+(i%25)*16, cy=150+Math.floor(i/25)*16;
+    rect(cx,cy,12,12,b.doneSet.has(i)?C.green:inProg.has(i)?C.yellow:C.purple,b.doneSet.has(i)?.35:.85); }
+  txt('queue',270,128,{size:15,font:MONO,color:C.purple});
+  const n=nW, sp=Math.min(80,440/n), bh=Math.min(56,sp-10), ys=[]; for(let k=0;k<n;k++) ys.push(360+(k-(n-1)/2)*sp);
+  ys.forEach((y,k)=>{ const w=b.workers[k], down=w.down>t;
+    seg(470,300,640,y,{color:'#24242c',lw:1.2});
+    box(640,y-bh/2,170,bh,{stroke:down?C.red:C.teal});
+    txt(`worker ${k+1}`,745,y-(bh>40?9:0),{size:15}); if(bh>40) txt(down?'crashed':w.item!=null?'working':'idle',745,y+13,{size:12,style:'italic',color:down?C.red:C.grey});
+    if(w.item!=null&&t>=w.start){ rect(654,y-6,12,12,C.yellow); arc(660,y,13,(t-w.start)/(w.end-w.start),C.yellow,1,2); } });
+  b.moving.forEach(m=>{ if(m.k>=ys.length) return; const u=clamp((t-m.t0)/.5), y=ys[m.k]; let p0,p1,col;
+    if(m.kind==='take'){p0=[470,300];p1=[660,y];col=C.yellow;} else if(m.kind==='done'){p0=[812,y];p1=[1010,360];col=C.green;} else {p0=[660,y];p1=[470,300];col=C.orange;}
+    rect(lerp(p0[0],p1[0],smooth(u))-5,lerp(p0[1],p1[1],smooth(u))-5,10,10,col,1); });
+  cylinder(1090,360,160,110,C.green,1); txt('results',1090,345,{size:16,color:C.green}); txt(fmtN(b.done*1000),1090,372,{size:15,font:MONO,color:C.green});
+  const hrs=250000*.1/nW/3600, fin=22+hrs, hh=Math.floor(fin%24), mm=Math.round((fin%1)*60)%60;
+  const clock=String(hh).padStart(2,'0')+':'+String(mm).padStart(2,'0');
+  const late=fin>33, tight=fin>30;
+  box(80,560,1120,120,{stroke:'#2c2c33',fill:'rgba(8,8,11,.9)'});
+  txt('at real scale (0.1 s per ticket per worker), starting at 22:00:',110,590,{size:16,style:'italic',color:C.grey,align:'left'});
+  txt(`${nW} worker${nW>1?'s':''} → ${hrs.toFixed(1)} hours → finishes ${clock}`,110,630,{size:22,font:MONO,color:late?C.red:tight?C.orange:C.green,align:'left'});
+  txt(late?'✗ collides with Monday 09:00':tight?'⚠ misses the 06:00 night window':'✓ done before morning',1170,630,{size:18,color:late?C.red:tight?C.orange:C.green,align:'right'});
+  txt(`remaining ${fmtN(b.queue.length*1000)} · done ${fmtN(b.done*1000)}`,640,500,{size:16,font:MONO,color:C.grey});
+}
+function renderExplore(dt){ if(lab==='cache') renderCacheLab(dt); else renderNightLab(dt); }
+
+/* ======================================================================
+   PLAYER
+   ====================================================================== */
+const START=[]; let TOTAL=0; S.forEach(s=>{START.push(TOTAL); TOTAL+=s.dur;});
+let T=0, playing=false, lastTs=null, voiceOn=false, capKey=null, explore=false, frameDt=0;
+const capEl=$('cap'), fillEl=$('fill'), timeEl=$('time'), playBtn=$('play'), bigPlay=$('bigplay'), voiceBtn=$('voice'), exBtn=$('exploreBtn');
+S.forEach((s,i)=>{
+  if(i>0){ const tk=document.createElement('div'); tk.className='tick'; tk.style.left=(START[i]/TOTAL*100)+'%'; $('bar').appendChild(tk); }
+  const b=document.createElement('button'); b.textContent=`${i+1} · ${s.title}`;
+  b.onclick=()=>{ setExplore(false); seek(START[i]+.001); if(!playing) setPlaying(true); };
+  $('chapters').appendChild(b);
+});
+const chapBtns=[...$('chapters').children];
+const locate=time=>{ for(let i=S.length-1;i>=0;i--) if(time>=START[i]) return {i,lt:Math.min(time-START[i],S[i].dur)}; return {i:0,lt:0}; };
+const fmt=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+/* ---------- NARRATOR: every word is spoken before the video moves on ---------- */
+const SAY=[[/“|”|"/g,''],[/TF-IDF/g,'T F I D F'],[/\b2xx\b/g,'two hundreds'],[/\b4xx\b/g,'four hundreds'],[/\b5xx\b/g,'five hundreds'],
+  [/HUMAN_REVIEW/g,'human review'],[/\bFINANCE\b/g,'Finance'],[/\bESTATES\b/g,'Estates'],[/\bIT\b/g,'I T'],[/\bHR\b/g,'H R'],
+  [/\bCCIO\b/g,'C C I O'],[/(\d{2}):(\d{2})/g,(m,h,mi)=>`${+h} ${mi==='00'?"o'clock":mi}`],[/7f3a/g,'7 F 3 A'],[/\//g,' slash ']];
+const NAR={u:null,speaking:false,until:0,voice:null,list:[]};
+const HOLDS=[]; S.forEach((s,i)=>{ s.caps.forEach((c,k)=>{ if(k>0) HOLDS.push(START[i]+c[0]-.02); }); HOLDS.push(START[i]+s.dur-.6); }); HOLDS.sort((a,b)=>a-b);
+const vSel=document.createElement('select'); vSel.title='Narrator voice';
+vSel.style.cssText='background:#16161a;border:1px solid #2a2a30;color:#ddd;border-radius:8px;height:36px;padding:0 8px;font-family:inherit;font-size:13px;max-width:200px';
+voiceBtn.after(vSel);
+const vNorm=l=>(l||'').replace('_','-');
+const vRank=v=>{ const l=vNorm(v.lang); return /^en-GB/i.test(l)?0:/^en-US/i.test(l)?1:/^en/i.test(l)?2:9; };
+const vGood=v=>/natural|online|google|neural|premium|enhanced/i.test(v.name)?1:0;
+const vName=v=>v.name.replace(/^(Microsoft|Google|Apple) /,'').replace(/\s*-\s*English.*$/,'').slice(0,34);
+function pickVoices(){
+  if(!('speechSynthesis' in window)) return;
+  const vs=speechSynthesis.getVoices().filter(v=>vRank(v)<9).sort((a,b)=>vRank(a)-vRank(b)||vGood(b)-vGood(a));
+  if(!vs.length) return;
+  NAR.list=vs; vSel.innerHTML='';
+  const label={0:'🇬🇧 UK English',1:'🇺🇸 US English',2:'Other English'}; let g=null, og=null;
+  vs.forEach((v,i)=>{
+    const r=vRank(v);
+    if(r!==g){ g=r; og=document.createElement('optgroup'); og.label=label[r]; vSel.appendChild(og); }
+    const o=document.createElement('option'); o.value=i; o.textContent=vName(v)+' · '+vNorm(v.lang); og.appendChild(o);
+  });
+  if(!vs.some(v=>vRank(v)===0)){
+    const og2=document.createElement('optgroup'); og2.label='No UK voice on this device';
+    const o=document.createElement('option'); o.value='help'; o.textContent='➕ How to add a UK English voice'; og2.appendChild(o); vSel.appendChild(og2);
+  }
+  const cur=NAR.voice?vs.findIndex(v=>v.name===NAR.voice.name):-1, i=cur>=0?cur:0;
+  vSel.value=String(i); NAR.voice=vs[i];
+}
+if('speechSynthesis' in window){ speechSynthesis.onvoiceschanged=pickVoices; pickVoices(); [300,1200,3500].forEach(ms=>setTimeout(pickVoices,ms)); }
+else vSel.style.display='none';
+vSel.onchange=()=>{
+  if(vSel.value==='help'){
+    capEl.textContent='To add a UK voice — Windows: Settings → Time & language → Speech → Add voices → English (United Kingdom). Mac: System Settings → Accessibility → Spoken Content → System voice → Manage Voices → English (UK). Or open this page in Microsoft Edge or Google Chrome, which include free UK voices. Then reload the page.';
+    vSel.value=String(Math.max(0,NAR.list.indexOf(NAR.voice))); return;
+  }
+  NAR.voice=NAR.list[+vSel.value]; stopVoice(); capKey=null;
+};
+function speak(s){
+  if(!voiceOn||!playing||!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const text=SAY.reduce((a,[r,v])=>a.replace(r,v),s);
+  const u=new SpeechSynthesisUtterance(text);
+  if(NAR.voice){ u.voice=NAR.voice; u.lang=NAR.voice.lang; } else u.lang='en-GB';
+  u.rate=1;
+  NAR.u=u; NAR.speaking=true; NAR.until=performance.now()+(text.split(/\s+/).length/2+4)*1000;
+  u.onend=u.onerror=()=>{ if(NAR.u===u) NAR.speaking=false; };
+  setTimeout(()=>{ if(NAR.u===u) speechSynthesis.speak(u); },80);
+}
+function stopVoice(){ NAR.speaking=false; NAR.u=null; if('speechSynthesis' in window) speechSynthesis.cancel(); }
+function narrating(){ if(!NAR.speaking) return false; if(performance.now()>NAR.until){ NAR.speaking=false; return false; } return true; }
+function updateCaption(i,lt){
+  const caps=S[i].caps; let ci=0; caps.forEach((c,k)=>{ if(lt>=c[0]) ci=k; });
+  const key=i+'-'+ci; if(key!==capKey){ capKey=key; capEl.textContent=caps[ci][1]; speak(caps[ci][1]); }
+}
+function render(){
+  ctx.setTransform(dpr,0,0,dpr,0,0); ctx.globalAlpha=1; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+  if(explore){ renderExplore(frameDt); return; }
+  const {i,lt}=locate(T), s=S[i], last=i===S.length-1;
+  ctx.globalAlpha=Math.min(P(lt,0,.45), last?1:1-P(lt,s.dur-.55,.55));
+  s.draw(lt); ctx.globalAlpha=1;
+  txt(`${i+1} · ${s.title}`,40,38,{size:15,color:'#555',align:'left',font:MONO});
+  updateCaption(i,lt);
+  fillEl.style.width=(T/TOTAL*100)+'%'; timeEl.textContent=`${fmt(T)} / ${fmt(TOTAL)}`;
+  chapBtns.forEach((b,k)=>b.classList.toggle('active',k===i));
+}
+function setPlaying(v){
+  playing=v; playBtn.textContent=v?'❚❚':'▶';
+  if(v){ setExplore(false); bigPlay.style.display='none'; if(T>=TOTAL) seek(0); capKey=null; } else stopVoice();
+}
+function seek(time){ T=clamp(time,0,TOTAL); capKey=null; stopVoice(); }
+const labCaps={cache:'Cache lab: switch caching on and off, change the mix, then press Retrain. Watch for stale answers, and see what caching /predictions stores.',
+               night:'Night job lab: change the number of workers and watch the finish time. Crash a worker: its tickets go back to the queue.'};
+function setLab(l){ lab=l; $('tabCache').classList.toggle('on',l==='cache'); $('tabNight').classList.toggle('on',l==='night');
+  $('ctlCache').classList.toggle('hide',l!=='cache'); $('ctlNight').classList.toggle('hide',l!=='night'); if(explore) capEl.textContent=labCaps[l]; }
+function setExplore(v){
+  if(explore===v) return; explore=v; exBtn.classList.toggle('on',v); $('explorePanel').classList.toggle('show',v);
+  if(v){ if(playing) setPlaying(false); bigPlay.style.display='none'; capEl.textContent=labCaps[lab]; } else capKey=null;
+}
+function frame(ts){
+  frameDt=lastTs!=null?(ts-lastTs)/1000:0;
+  if(playing){
+    let dt=Math.min(frameDt,.1);
+    if(voiceOn&&narrating()){ const h=HOLDS.find(x=>x>=T-1e-6); if(h!==undefined&&T+dt>=h) dt=Math.max(0,h-T); }
+    T+=dt;
+    if(T>=TOTAL){ T=TOTAL; if(!(voiceOn&&narrating())){ setPlaying(false); bigPlay.style.display='block'; bigPlay.textContent='↺'; } }
+  }
+  lastTs=ts; render(); requestAnimationFrame(frame);
+}
+cv.addEventListener('pointerdown',()=>{ if(!explore) setPlaying(!playing); });
+playBtn.onclick=()=>setPlaying(!playing);
+bigPlay.onclick=()=>setPlaying(true);
+$('restart').onclick=()=>{ seek(0); setPlaying(true); };
+voiceBtn.onclick=()=>{ voiceOn=!voiceOn; voiceBtn.textContent=voiceOn?'🔊 Voice on':'🔈 Voice off'; voiceBtn.classList.toggle('on',voiceOn); if(!voiceOn) stopVoice(); else capKey=null; };
+exBtn.onclick=()=>setExplore(!explore);
+$('tabCache').onclick=()=>setLab('cache'); $('tabNight').onclick=()=>setLab('night');
+$('cMix').oninput=e=>{ $('cMixV').textContent=e.target.value+'%'; };
+$('cRetrain').onclick=()=>{ CLAB.version++; CLAB.staleSince=0; if($('cClear').checked) CLAB.cache.clear(); };
+$('cPred').onchange=e=>{ if(!e.target.checked) [...CLAB.cache.keys()].forEach(k=>{ if(k!=='info') CLAB.cache.delete(k); }); };
+$('cInfo').onchange=e=>{ if(!e.target.checked) CLAB.cache.delete('info'); };
+$('nW').oninput=e=>{ const v=parseInt(e.target.value);
+  for(let k=v;k<NB.workers.length;k++){ const w=NB.workers[k]; if(w.item!=null){ NB.queue.unshift(w.item); w.item=null; } }
+  nW=v; $('nWV').textContent=v; };
+$('nCrash').onclick=()=>{ const busy=NB.workers.slice(0,nW).map((w,k)=>[w,k]).filter(([w])=>w.item!=null&&w.down<=NB.t);
+  const pick=busy.length?busy[Math.floor(Math.random()*busy.length)][1]:0; NB.crashWorker(pick,NB.t,3); };
+$('nReset').onclick=()=>NB.reset();
+$('bar').onclick=e=>{ setExplore(false); const r=$('bar').getBoundingClientRect(); seek((e.clientX-r.left)/r.width*TOTAL); };
+document.addEventListener('keydown',e=>{
+  if(['INPUT','SELECT'].includes(e.target.tagName)) return;
+  if(e.code==='Space'){ e.preventDefault(); setPlaying(!playing); }
+  if(e.code==='ArrowRight'){ const {i}=locate(T); if(i<S.length-1) seek(START[i+1]+.001); }
+  if(e.code==='ArrowLeft'){ const {i,lt}=locate(T); seek(START[lt<1.5&&i>0?i-1:i]+.001); }
+});
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

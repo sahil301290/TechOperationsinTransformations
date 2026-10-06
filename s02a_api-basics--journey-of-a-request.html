@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The journey of a request · APIs from absolute basics</title>
+<meta name="video-id" content="s02a">
+<meta name="section" content="APIs from absolute basics">
+<style>
+  :root{--blue:#58C4DD;--yellow:#F7D96F;--grey:#8a8a8a}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0b0b0d;color:#e8e8e8;font-family:Georgia,'Times New Roman',serif;display:flex;justify-content:center;padding:24px 16px 40px;min-height:100vh}
+  .wrap{width:100%;max-width:1100px}
+  header{margin-bottom:16px;display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+  header h1{font-weight:normal;font-size:28px}
+  header h1 span{color:var(--blue)}
+  header p{color:var(--grey);font-style:italic;margin-top:4px;font-size:15px}
+  .ep{font-family:Consolas,monospace;font-size:12px;color:#666;border:1px solid #26262c;border-radius:999px;padding:4px 12px}
+  .stage{position:relative;background:#000;border-radius:12px;overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,.7),0 0 0 1px #1f1f24}
+  canvas{display:block;width:100%;height:auto;cursor:pointer}
+  #bigplay{position:absolute;inset:0;margin:auto;width:96px;height:96px;border-radius:50%;border:2px solid var(--blue);background:rgba(88,196,221,.08);color:var(--blue);font-size:36px;cursor:pointer;transition:transform .25s,background .25s;padding-left:6px}
+  #bigplay:hover{transform:scale(1.08);background:rgba(88,196,221,.18)}
+  .caption{min-height:70px;padding:16px 8px 6px;text-align:center;font-size:20px;line-height:1.45;color:#ddd}
+  .controls{display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap}
+  .controls button,.explore button{background:#16161a;border:1px solid #2a2a30;color:#ddd;border-radius:8px;height:38px;min-width:42px;padding:0 12px;font-size:15px;cursor:pointer;font-family:inherit;transition:border-color .2s,color .2s}
+  .controls button:hover,.explore button:hover{border-color:var(--blue);color:var(--blue)}
+  .controls button.on{border-color:var(--yellow);color:var(--yellow)}
+  .bar{position:relative;flex:1;min-width:160px;height:8px;background:#1c1c22;border-radius:6px;cursor:pointer}
+  .fill{position:absolute;left:0;top:0;bottom:0;background:var(--blue);border-radius:6px;width:0}
+  .tick{position:absolute;top:-3px;width:2px;height:14px;background:#444}
+  #time{font-family:Consolas,monospace;font-size:13px;color:var(--grey);min-width:92px;text-align:right}
+  .explore{display:none;flex-wrap:wrap;align-items:center;gap:12px 18px;margin-top:14px;padding:14px 16px;border:1px solid #2c2c33;border-radius:10px;background:#111115;font-family:Consolas,monospace;font-size:13px;color:#bbb}
+  .explore.show{display:flex}
+  .explore label{display:flex;align-items:center;gap:6px}
+  .explore select{background:#0b0b0d;color:#eee;border:1px solid #33333b;border-radius:6px;padding:6px 8px;font-family:inherit;font-size:13px}
+  .explore input[type=checkbox]{accent-color:#F7D96F;width:16px;height:16px}
+  .explore #exSend{border-color:var(--yellow);color:var(--yellow);margin-left:auto}
+  .chapters{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+  .chapters button{background:transparent;border:1px solid #26262c;color:#9a9a9a;border-radius:999px;padding:6px 14px;font-size:13px;cursor:pointer;font-family:Consolas,monospace;transition:all .2s}
+  .chapters button:hover{color:#fff;border-color:#555}
+  .chapters button.active{color:#000;background:var(--blue);border-color:var(--blue)}
+  .hint{color:#555;font-size:12px;margin-top:14px;font-family:Consolas,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>The journey of a <span>request</span></h1>
+      <p>APIs, HTTP, REST, JSON, and what every status code is telling you</p>
+    </div>
+    <span class="ep" style="color:#F7D96F;border-color:#3a3a2a">Section: APIs from absolute basics</span>
+  </header>
+  <div class="stage">
+    <canvas id="cv" aria-label="Animated explainer"></canvas>
+    <button id="bigplay" aria-label="Play">▶</button>
+  </div>
+  <div class="caption" id="cap" aria-live="polite"></div>
+  <div class="controls">
+    <button id="play" aria-label="Play or pause">▶</button>
+    <button id="restart" aria-label="Restart">↺</button>
+    <div class="bar" id="bar"><div class="fill" id="fill"></div></div>
+    <span id="time">0:00 / 0:00</span>
+    <button id="voice">🔈 Voice off</button>
+    <button id="exploreBtn">🔍 Build a request</button>
+  </div>
+  <div class="explore" id="explorePanel">
+    <label>Endpoint
+      <select id="exEndpoint"><option value="/predictions">POST /predictions</option><option value="/predict">POST /predict</option></select></label>
+    <label>API key
+      <select id="exKey"><option value="ok">correct key</option><option value="missing">missing</option><option value="wrong">wrong key</option><option value="readonly">valid, but read-only</option></select></label>
+    <label>Body
+      <select id="exBody"><option value="ok">{"message": "My expenses…"}</option><option value="empty">{"message": ""}</option><option value="none">{ } (no message field)</option></select></label>
+    <label><input type="checkbox" id="exBurst"> 5,000 requests / second</label>
+    <label><input type="checkbox" id="exDown"> model failed to load</label>
+    <label><input type="checkbox" id="exRule" checked> rule: message not empty</label>
+    <button id="exSend">Send ▶</button>
+  </div>
+  <div class="chapters" id="chapters"></div>
+  <div class="hint">Space = play/pause · ← → = chapters · click the bar to jump · "Build a request" lets you test every checkpoint</div>
+</div>
+
+<script>
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const W=1280, H=720; let dpr=1;
+function resize(){ dpr=Math.min(window.devicePixelRatio||1,2); cv.width=W*dpr; cv.height=H*dpr; }
+resize(); addEventListener('resize', resize);
+
+const C={white:'#ECECEC',grey:'#7d7d7d',dim:'#444',blue:'#58C4DD',yellow:'#F7D96F',green:'#83C167',red:'#FC6255',teal:'#5CD0B3',purple:'#B189C6',orange:'#FF9A4D'};
+const SERIF='Georgia, "Times New Roman", serif', MONO='Consolas, "SFMono-Regular", "Liberation Mono", monospace';
+const clamp=(x,a=0,b=1)=>Math.max(a,Math.min(b,x));
+const smooth=x=>{x=clamp(x);return x*x*(3-2*x);};
+const P=(t,s,d)=>smooth((t-s)/d);
+const lerp=(a,b,p)=>a+(b-a)*p;
+const codeCol=c=>c[0]==='2'?C.green:c[0]==='4'?C.orange:C.red;
+
+/* ---------- drawing helpers ---------- */
+const fontStr=(size,font,style)=>[style,size+'px',font].filter(Boolean).join(' ');
+function tw(s,size,font=SERIF,style=''){ctx.save();ctx.font=fontStr(size,font,style);const w=ctx.measureText(s).width;ctx.restore();return w;}
+function txt(s,x,y,o={}){
+  const {size=28,color=C.white,align='center',alpha=1,font=SERIF,style='',p=1}=o;
+  if(alpha<=0||p<=0) return;
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.font=fontStr(size,font,style); ctx.fillStyle=color; ctx.textAlign=align; ctx.textBaseline='middle';
+  if(p<1){ const w=ctx.measureText(s).width, x0=align==='center'?x-w/2:align==='right'?x-w:x; ctx.beginPath(); ctx.rect(x0-4,y-size,(w+8)*p,size*2); ctx.clip(); }
+  ctx.fillText(s,x,y); ctx.restore();
+}
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function box(x,y,w,h,o={}){
+  const {stroke=C.white,fill=null,alpha=1,lw=2,r=10,p=1,dash=null}=o; if(alpha<=0||p<=0) return;
+  ctx.save(); ctx.globalAlpha*=alpha; rr(x,y,w,h,r); if(fill){ctx.fillStyle=fill;ctx.fill();}
+  const L=2*(w+h); if(p<1) ctx.setLineDash([L*p,L]); else if(dash) ctx.setLineDash(dash);
+  ctx.strokeStyle=stroke; ctx.lineWidth=lw; ctx.stroke(); ctx.restore();
+}
+function seg(x1,y1,x2,y2,o={}){
+  const {color=C.white,lw=2,alpha=1,p=1,dash=null}=o; if(p<=0||alpha<=0) return;
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.lineCap='round'; if(dash) ctx.setLineDash(dash);
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(lerp(x1,x2,p),lerp(y1,y2,p)); ctx.stroke(); ctx.restore();
+}
+function arrow(x1,y1,x2,y2,o={}){
+  const {color=C.white,p=1,alpha=1,lw=2.5,head=12}=o; if(p<=0||alpha<=0) return;
+  seg(x1,y1,x2,y2,{color,lw,alpha,p});
+  const x=lerp(x1,x2,p), y=lerp(y1,y2,p), a=Math.atan2(y2-y1,x2-x1);
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.fillStyle=color; ctx.beginPath(); ctx.moveTo(x,y);
+  ctx.lineTo(x-head*Math.cos(a-.4),y-head*Math.sin(a-.4)); ctx.lineTo(x-head*Math.cos(a+.4),y-head*Math.sin(a+.4)); ctx.closePath(); ctx.fill(); ctx.restore();
+}
+function ring(x,y,r,color,alpha=1,lw=2){ if(alpha<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke(); ctx.restore(); }
+function jsonBox(lines,cx,cy,alpha,color=C.white){
+  const size=18, lh=27, w=Math.max(...lines.map(l=>tw(l,size,MONO)))+44, h=lines.length*lh+26, bx=cx-w/2, by=cy-h/2;
+  const g={bx,by,w,h,x0:bx+22,ly:i=>by+13+lh/2+i*lh};
+  if(alpha<=0) return g;
+  box(bx,by,w,h,{stroke:'#3a3a42',fill:'rgba(255,255,255,0.035)',alpha});
+  lines.forEach((l,i)=>txt(l,g.x0,g.ly(i),{size,font:MONO,align:'left',color,alpha}));
+  return g;
+}
+function chip(x,y,code,col,a,sub=''){
+  if(a<=0) return;
+  box(x-40,y-20,80,40,{stroke:col,fill:'rgba(0,0,0,.92)',alpha:a});
+  txt(code,x,y,{size:22,font:MONO,color:col,alpha:a});
+  if(sub) txt(sub,x,y+34,{size:13,color:C.grey,alpha:a,style:'italic'});
+}
+function illustrative(){ txt('illustrative numbers',1250,700,{size:13,color:'#4a4a4a',align:'right',font:MONO}); }
+
+/* ---------- the checkpoint pipeline ---------- */
+const PY=330, GX=[300,455,610,765,920], ST=[110,...GX,1140], HOP=.42;
+const GATES=[
+  {q:'address known?',code:'404',sub:'not found'},
+  {q:'who are you?',code:'401',sub:'not authenticated'},
+  {q:'too many?',code:'429',sub:'slow down'},
+  {q:'data valid?',code:'422',sub:'failed validation'},
+  {q:'model ready?',code:'503',sub:'try again later'}];
+const arr=(t0,stop)=>t0+HOP*(stop+1);
+const gateFlash=(t,ta)=>t>=ta?1-P(t,ta+.8,.5):0;
+
+function pipeline(o={}){
+  const {a=1,gA=[1,1,1,1,1],lab=[1,1,1,1,1],flash=[0,0,0,0,0],rule=0,modelGlow=0}=o;
+  if(a<=0) return;
+  box(40,PY-45,140,90,{stroke:C.blue,alpha:a});
+  txt('Staff portal',110,PY-8,{size:18,alpha:a});
+  txt('client',110,PY+20,{size:14,style:'italic',color:C.grey,alpha:a});
+  box(225,PY-150,1020,312,{stroke:'#3a3a44',alpha:a,dash:[8,6]});
+  txt('inside the API (server)',245,PY-132,{size:14,font:MONO,color:C.grey,align:'left',alpha:a});
+  seg(180,PY,1070,PY,{color:'#2a2a30',lw:2,alpha:a});
+  box(1070,PY-40,140,80,{stroke:modelGlow>0?C.yellow:C.teal,lw:2+modelGlow*2,alpha:a});
+  txt('model',1140,PY,{size:18,alpha:a});
+  GX.forEach((gx,g)=>{
+    const ga=a*gA[g]; if(ga<=0) return;
+    const col=flash[g]>0.02?C.red:'#8a8a8a';
+    seg(gx,PY-78,gx,PY-24,{color:col,lw:5,alpha:ga}); seg(gx,PY+24,gx,PY+78,{color:col,lw:5,alpha:ga});
+    if(flash[g]>0) ring(gx,PY,32,C.red,ga*flash[g],2);
+    txt(GATES[g].q,gx,PY-100,{size:16,style:'italic',alpha:a*lab[g]});
+  });
+  txt('rule: message must not be empty',GX[3],PY-124,{size:13,font:MONO,color:C.yellow,alpha:a*rule});
+}
+function packet(x,y,col,a,label){
+  box(x-26,y-16,52,32,{stroke:col,fill:'rgba(0,0,0,.92)',alpha:a,r:6,lw:2.5});
+  txt('{ }',x,y,{size:15,font:MONO,color:col,alpha:a});
+  if(label) txt(label,x,y-32,{size:13,font:MONO,color:C.grey,alpha:a});
+}
+function runPacket(t,t0,stop,o={}){
+  const {label='',col=null}=o; if(t<t0) return;
+  const j=stop+1, ta=arr(t0,stop), fail=stop<5;
+  let x, c=C.white, a=1;
+  if(t<ta){ const f=(t-t0)/HOP, k=Math.floor(f); x=lerp(ST[k],ST[k+1],smooth(f-k)); }
+  else {
+    c=fail?(col||C.red):C.green; const hold=fail?.5:.6, back=fail?.9:1.2;
+    if(t<ta+hold) x=ST[j];
+    else if(t<ta+hold+back) x=lerp(ST[j],ST[0],smooth((t-ta-hold)/back));
+    else { x=ST[0]; a=1-P(t,ta+hold+back,.35); }
+  }
+  if(a>0) packet(x,PY,c,a,label);
+}
+
+/* ======================================================================
+   SCENES
+   ====================================================================== */
+const S=[
+/* 1 ─ The waiter */
+{title:'The waiter',dur:24,
+ caps:[[0,"The model works in a notebook on someone's laptop. How does the staff portal actually use it?"],
+       [6.8,"Think of a restaurant. The customer never walks into the kitchen."],
+       [11.5,"They order from a menu, through a waiter, and get a plate back."],
+       [16.8,"An API is that waiter: an agreed way for one program to ask another to do something."]],
+ draw(t){
+   txt('SECTION · APIs FROM ABSOLUTE BASICS',640,60,{size:15,font:MONO,color:C.yellow,alpha:P(t,.2,.8)*(1-P(t,5.5,.6))});
+   const aA=P(t,.3,.8)*(1-P(t,6.3,.6));
+   box(260,300,240,90,{stroke:C.blue,alpha:aA}); txt('Staff portal',380,345,{size:22,alpha:aA});
+   box(780,300,240,90,{stroke:C.teal,alpha:aA}); txt('ML model',900,333,{size:22,alpha:aA});
+   txt('in a notebook, on a laptop',900,362,{size:15,style:'italic',color:C.grey,alpha:aA});
+   txt('?',640,345,{size:56,color:C.yellow,alpha:aA*P(t,1.5,.6)});
+   const B=P(t,6.8,.8);
+   const top=[['Customer','asks',220],['Waiter','takes the order',640],['Kitchen','does the work',1060]];
+   top.forEach(([n,d,x],i)=>{ const a=B*P(t,7+i*.4,.6);
+     box(x-100,160,200,90,{stroke:i===1?C.yellow:C.white,alpha:a}); txt(n,x,195,{size:24,alpha:a}); txt(d,x,226,{size:15,style:'italic',color:C.grey,alpha:a}); });
+   txt('✗ never walks into the kitchen',640,122,{size:18,style:'italic',color:C.red,alpha:P(t,8.4,.6)});
+   arrow(320,190,540,190,{color:C.yellow,p:P(t,11.6,.7)}); arrow(740,190,960,190,{color:C.yellow,p:P(t,12.3,.7)});
+   txt('order',430,174,{size:15,font:MONO,color:C.yellow,alpha:P(t,11.8,.5)});
+   arrow(960,226,740,226,{color:C.green,p:P(t,13.4,.7)}); arrow(540,226,320,226,{color:C.green,p:P(t,14.1,.7)});
+   txt('plate',430,244,{size:15,font:MONO,color:C.green,alpha:P(t,14.2,.5)});
+   box(560,268,160,46,{stroke:C.yellow,alpha:P(t,11.6,.6),r:6});
+   txt('MENU',640,284,{size:15,font:MONO,color:C.yellow,alpha:P(t,11.6,.6)});
+   txt('what you may ask for',640,302,{size:12,style:'italic',color:C.grey,alpha:P(t,11.6,.6)});
+   const bot=[['Staff portal',220,C.blue],['API',640,C.yellow],['ML model',1060,C.teal]];
+   bot.forEach(([n,x,col],i)=>{ const a=P(t,17+i*.4,.6);
+     seg(x,i===1?318:254,x,436,{color:'#555',lw:1.5,dash:[5,6],alpha:a});
+     box(x-100,440,200,80,{stroke:col,lw:i===1?3:2,alpha:a}); txt(n,x,480,{size:24,alpha:a}); });
+   arrow(320,465,540,465,{color:C.yellow,p:P(t,18.4,.7)}); arrow(740,465,960,465,{color:C.yellow,p:P(t,18.8,.7)});
+   arrow(960,498,740,498,{color:C.green,p:P(t,19.4,.7)}); arrow(540,498,320,498,{color:C.green,p:P(t,19.8,.7)});
+   txt('request',430,449,{size:14,font:MONO,color:C.yellow,alpha:P(t,18.6,.5)});
+   txt('response',430,516,{size:14,font:MONO,color:C.green,alpha:P(t,20,.5)});
+   txt('API · Application Programming Interface',640,600,{size:26,color:C.yellow,p:P(t,20.3,1.5)});
+   txt('the menu = what you may ask for, and how to ask',640,640,{size:19,style:'italic',color:C.grey,alpha:P(t,21.5,.8)});
+ }},
+
+/* 2 ─ Request and response */
+{title:'Request & response',dur:26.5,
+ caps:[[0,"In software, the one who asks is the client. The one who answers is the server."],
+       [6.5,"The question is a request. It goes to an address called an endpoint: POST /predictions."],
+       [12.5,"The answer is a response, written in JSON."],
+       [16,"JSON is a bundle of named values. Text goes in quotes. Numbers don't. True and false mean yes or no."],
+       [23,"Readable by people, and easy for software."]],
+ draw(t){
+   const a1=P(t,.3,.8), a2=P(t,1.5,.8);
+   box(60,250,240,120,{stroke:C.blue,alpha:a1}); txt('Staff portal',180,295,{size:22,alpha:a1}); txt('client · asks',180,330,{size:16,style:'italic',color:C.grey,alpha:a1});
+   box(980,250,240,120,{stroke:C.teal,alpha:a2}); txt('Routing service',1100,295,{size:22,alpha:a2}); txt('server · answers',1100,330,{size:16,style:'italic',color:C.grey,alpha:a2});
+   const ea=P(t,6.6,.6);
+   box(995,212,210,32,{stroke:C.yellow,fill:'rgba(0,0,0,.9)',alpha:ea,r:6}); txt('POST /predictions',1100,228,{size:16,font:MONO,color:C.yellow,alpha:ea});
+   txt('endpoint',1100,190,{size:14,style:'italic',color:C.grey,alpha:ea});
+   arrow(305,285,975,285,{color:C.yellow,p:P(t,7.2,1.2)});
+   txt('request',640,268,{size:15,font:MONO,color:C.yellow,alpha:P(t,7.6,.5)});
+   jsonBox(['{','  "message": "My overtime payment is missing"','}'],640,160,P(t,8,.8));
+   arrow(975,342,305,342,{color:C.green,p:P(t,12.6,1.2)});
+   txt('response',640,360,{size:15,font:MONO,color:C.green,alpha:P(t,13,.5)});
+   const RESP=['{','  "team": "FINANCE",','  "confidence": 0.91,','  "human_review": false','}'];
+   const g=jsonBox(RESP,560,530,P(t,13.4,.8),C.white);
+   const an=(line,prefix,token,label,col,s)=>{
+     const a=P(t,s,.6); if(a<=0) return;
+     const x1=g.x0+tw(prefix,18,MONO), w=tw(token,18,MONO), y=g.ly(line);
+     seg(x1,y+13,x1+w,y+13,{color:col,lw:2.5,alpha:a});
+     const ex=g.bx+g.w+30;
+     seg(x1+w+6,y,ex-8,y,{color:col,lw:1,alpha:a*.6,dash:[3,4]});
+     txt(label,ex,y,{size:17,color:col,align:'left',alpha:a,style:'italic'});
+   };
+   an(1,'  "team": ','"FINANCE"','text goes in quotes',C.yellow,16.4);
+   an(2,'  "confidence": ','0.91','numbers have no quotes',C.blue,18.2);
+   an(3,'  "human_review": ','false','yes or no: true / false',C.green,20);
+   const ka=P(t,21,.6);
+   seg(g.x0+tw('  ',18,MONO),g.ly(1)+13,g.x0+tw('  "team"',18,MONO),g.ly(1)+13,{color:C.purple,lw:2.5,alpha:ka});
+   txt('key = a name, like a column heading',g.bx-24,g.ly(1),{size:16,style:'italic',color:C.purple,align:'right',alpha:ka});
+   txt('{ }  one object',g.bx-24,g.ly(0),{size:16,style:'italic',color:C.grey,align:'right',alpha:P(t,16.2,.6)});
+ }},
+
+/* 3 ─ HTTP, API, REST */
+{title:'HTTP · API · REST',dur:30,
+ caps:[[0,"Four words beginners mix up: HTTP, API, REST and RESTful."],
+       [4.5,"HTTP is the postal service: the rules for carrying a message across the web."],
+       [10,"The API is what you are allowed to ask for, and how: the menu."],
+       [15.5,"REST is one style of designing that menu. Organise it around nouns, called resources, and use standard verbs."],
+       [23,"An API that follows these rules is RESTful. Sending JSON alone does not make it RESTful."]],
+ draw(t){
+   const ha=P(t,4.6,.8);
+   txt('HTTP · the postal service',330,108,{size:26,color:C.white,p:P(t,4.6,1.2)});
+   box(60,150,540,320,{stroke:C.white,alpha:ha,p:ha});
+   seg(60,150,330,200,{color:C.white,lw:1.5,alpha:ha*.35}); seg(600,150,330,200,{color:C.white,lw:1.5,alpha:ha*.35});
+   const L=[['POST /predictions HTTP/1.1',C.yellow,240],['Host: harbourside-router.azurewebsites.net',C.blue,272],
+            ['X-API-Key: ••••••••',C.blue,300],['Content-Type: application/json',C.blue,328],
+            ['{ "message": "My overtime payment is missing" }',C.green,392]];
+   L.forEach(([s,col,y],i)=>txt(s,90,y,{size:16,font:MONO,color:col,align:'left',p:P(t,5.4+i*.45,.9)}));
+   const lg=P(t,8,.8);
+   txt('method + endpoint',90,505,{size:15,font:MONO,color:C.yellow,align:'left',alpha:lg});
+   txt('headers',290,505,{size:15,font:MONO,color:C.blue,align:'left',alpha:lg});
+   txt('body',390,505,{size:15,font:MONO,color:C.green,align:'left',alpha:lg});
+   txt('carries the message',330,545,{size:17,style:'italic',color:C.grey,alpha:lg});
+   const aa=P(t,10.1,.8);
+   box(680,150,540,180,{stroke:C.teal,alpha:aa,p:aa});
+   txt('API · the menu',950,180,{size:24,color:C.teal,alpha:aa});
+   [['GET  /             → is it running?',225],['GET  /model-info   → facts about the model',260],['POST /predictions  → a routing decision',295]]
+     .forEach(([s,y],i)=>txt(s,705,y,{size:16,font:MONO,align:'left',p:P(t,10.8+i*.5,1)}));
+   const ra=P(t,15.6,.8);
+   box(680,365,540,215,{stroke:C.purple,alpha:ra,p:ra});
+   txt('REST · nouns + verbs',950,395,{size:24,color:C.purple,alpha:ra});
+   txt('GET',1060,432,{size:17,font:MONO,color:C.blue,alpha:P(t,17,.6)});
+   txt('POST',1160,432,{size:17,font:MONO,color:C.yellow,alpha:P(t,17,.6)});
+   txt('resources (nouns)',705,432,{size:14,style:'italic',color:C.grey,align:'left',alpha:P(t,16.4,.6)});
+   [['/tickets','✓','✓'],['/model-info','✓','–'],['/predictions','–','✓']].forEach(([r,g,p],i)=>{
+     const y=472+i*36, a=P(t,17.6+i*.5,.6);
+     txt(r,705,y,{size:17,font:MONO,align:'left',alpha:a});
+     txt(g,1060,y,{size:20,color:g==='✓'?C.green:C.dim,alpha:a});
+     txt(p,1160,y,{size:20,color:p==='✓'?C.green:C.dim,alpha:a}); });
+   txt('built around resources + standard verbs  →  RESTful ✓',950,618,{size:18,color:C.green,p:P(t,23.2,1.4)});
+   txt('just sends JSON  →  RESTful?  not automatically ✗',950,655,{size:18,color:C.red,p:P(t,25.5,1.4)});
+ }},
+
+/* 4 ─ GET vs POST */
+{title:'GET vs POST',dur:20.5,
+ caps:[[0,"Resources are nouns. Methods are verbs."],
+       [3.5,"GET means: give me something. It reads, and changes nothing. GET /model-info."],
+       [9.5,"POST means: here is some data, process it. The data travels in the body. POST /predictions."],
+       [16,"PUT, PATCH and DELETE exist too. We don't need them today."]],
+ draw(t){
+   txt('resources are nouns  ·  methods are verbs',640,80,{size:30,p:P(t,.2,1.4)});
+   const lane=(y,col,title,sub,s0,label,ret,body)=>{
+     const a=P(t,s0-.6,.6);
+     box(60,y-35,180,70,{stroke:C.blue,alpha:a}); txt('client',150,y,{size:18,alpha:a});
+     box(1040,y-35,180,70,{stroke:C.teal,alpha:a}); txt('server',1130,y,{size:18,alpha:a});
+     seg(240,y,1040,y,{color:'#2a2a30',lw:2,alpha:a});
+     txt(title,640,y-70,{size:22,color:col,alpha:a});
+     txt(sub,640,y+(body?92:62),{size:17,style:'italic',color:C.grey,alpha:P(t,s0+1.5,.6)});
+     const out=P(t,s0,2), back=P(t,s0+2.6,1.8);
+     if(t>s0 && t<s0+2.6){ const x=lerp(330,950,out);
+       box(x-90,y-22,180,44,{stroke:col,fill:'rgba(0,0,0,.92)'}); txt(label,x,y,{size:15,font:MONO,color:col});
+       if(body){ box(x-100,y+26,200,30,{stroke:C.green,fill:'rgba(0,0,0,.92)',r:6}); txt('body: {"message": "…"}',x,y+41,{size:13,font:MONO,color:C.green}); } }
+     if(t>=s0+2.6){ const x=lerp(950,330,back), fa=1-P(t,s0+5,.6);
+       box(x-110,y-22,220,44,{stroke:C.green,fill:'rgba(0,0,0,.92)',alpha:fa}); txt(ret,x,y,{size:15,font:MONO,color:C.green,alpha:fa}); }
+   };
+   lane(250,C.blue,'GET · “give me something”','reads · changes nothing',4,'GET /model-info','{ "classes": [ … ] }',false);
+   lane(480,C.yellow,'POST · “here is data, process it”','sends data in the body',10,'POST /predictions','{ "team": "FINANCE" }',true);
+   txt('also exist: PUT · PATCH · DELETE  (not needed today)',640,660,{size:18,font:MONO,color:C.grey,alpha:P(t,16.2,.8)});
+ }},
+
+/* 5 ─ The checkpoints */
+{title:'The checkpoints',dur:43.5,
+ caps:[[0,"Now follow one request all the way through. On its journey, it must pass a series of checkpoints."],
+       [7.2,"First: is this an address we know? If not: 404, not found."],
+       [12,"Then: who are you? A missing or wrong API key gets 401. Known, but not allowed? That is 403."],
+       [19.2,"Are you sending too much, too fast? 429: slow down."],
+       [23.5,"Is the data valid? A missing message field gets 422: understood, but the data failed validation."],
+       [30,"Is the model ready? If it failed to load: 503, try again later. If something else breaks: 500."],
+       [37,"Pass every checkpoint, and you get 200: here is your answer."]],
+ draw(t){
+   const gA=GX.map((_,g)=>P(t,1.5+g*.25,.6));
+   const lab=[7.2,12,19.2,23.5,30].map(s=>P(t,s,.6));
+   const runs=[[8.4,0,'/predict'],[13.4,1,'no key'],[20.2,2,'×5000'],[24.6,3,'{ }'],[31.2,4,'']];
+   const flash=[0,0,0,0,0]; runs.forEach(([t0,g])=>{ flash[g]=gateFlash(t,arr(t0,g)); });
+   const sT0=37.4, sTa=arr(sT0,5), glow=t>=sTa?1-P(t,sTa+.5,.3):0;
+   pipeline({a:P(t,.2,.8),gA,lab,flash,modelGlow:glow});
+   runs.forEach(([t0,g,l])=>{
+     const code=GATES[g].code; runPacket(t,t0,g,{label:l,col:codeCol(code)});
+     chip(GX[g],PY+112,code,codeCol(code),P(t,arr(t0,g)+.1,.3),GATES[g].sub); });
+   txt('403 = known, but not allowed',GX[1],PY+170,{size:13,font:MONO,color:C.orange,alpha:P(t,16.6,.6)});
+   chip(1140,PY+112,'500',C.red,P(t,34.6,.6),'anything else broke');
+   runPacket(t,sT0,5,{label:'msg'});
+   chip(110,PY+112,'200',C.green,P(t,sTa+1.8,.3),'here is your answer');
+   txt('a typical order: real systems vary',1250,700,{size:13,color:'#4a4a4a',align:'right',font:MONO});
+ }},
+
+/* 6 ─ Whose fault? */
+{title:'Whose problem?',dur:23.5,
+ caps:[[0,"Notice the pattern in the first digit."],
+       [2.5,"2xx: it worked."],
+       [4.5,"4xx: the problem is in your request. Fix the request, then try again."],
+       [10,"5xx: the problem is on our side. The client did nothing wrong."],
+       [15.3,"That tells the staff portal what to do next: fix it, wait and retry, or send the ticket to a person."]],
+ draw(t){
+   const cols=[[240,'2xx','it worked','200',C.green,2.5,['show the result','']],
+               [640,'4xx','problem with your request','401 · 403 · 404 · 422 · 429',C.orange,4.6,['fix the request','(429: wait, then retry)']],
+               [1040,'5xx','problem on our side','500 · 503',C.red,10.1,['retry later','or send to the human queue']]];
+   cols.forEach(([x,h,d,codes,col,s,act],i)=>{
+     const a=P(t,s,.7);
+     box(x-180,120,360,220,{stroke:col,alpha:a,p:a});
+     txt(h,x,175,{size:56,font:MONO,color:col,alpha:a});
+     txt(d,x,235,{size:19,style:'italic',alpha:a});
+     txt(codes,x,290,{size:19,font:MONO,color:C.grey,alpha:a});
+     const b=P(t,15.6+i*.6,.7);
+     arrow(x,345,x,415,{color:col,p:b});
+     txt(act[0],x,450,{size:21,color:col,alpha:b}); if(act[1]) txt(act[1],x,480,{size:16,style:'italic',color:C.grey,alpha:b});
+   });
+   txt('the first digit tells the client what to do next',640,590,{size:26,color:C.yellow,p:P(t,18.5,1.8)});
+ }},
+
+/* 7 ─ Valid but useless */
+{title:'Valid but useless',dur:21,
+ caps:[[0,"One more test. Send an empty message."],
+       [4,"The shape is valid, so it passes every checkpoint. Status: 200."],
+       [9,"But the answer is useless. A checkpoint only catches what we tell it to catch."],
+       [15,"So we add a rule: the message must not be empty. Now it gets 422."]],
+ draw(t){
+   const r1=4.2, r2=16.2, ta1=arr(r1,5), ta2=arr(r2,3);
+   const glow=t>=ta1&&t<ta1+.6?1:0;
+   pipeline({flash:[0,0,0,gateFlash(t,ta2),0],rule:P(t,15.2,.8),modelGlow:glow});
+   txt('{"message": ""}',640,95,{size:26,font:MONO,color:C.yellow,p:P(t,.4,1.4)});
+   runPacket(t,r1,5,{label:'""'});
+   const okA=P(t,ta1+1.8,.3)*(1-P(t,14.6,.5));
+   chip(110,PY+112,'200',C.yellow,okA); txt('(!)',156,PY+112,{size:22,color:C.yellow,align:'left',alpha:okA});
+   const ja=P(t,ta1+1.6,.6)*(1-P(t,14.6,.5));
+   jsonBox(['{','  "team": "HUMAN_REVIEW",','  "confidence": 0.25,','  "human_review": true','}'],640,585,ja,C.yellow);
+   txt('no words → every number is zero → the model can only guess',640,695,{size:17,style:'italic',color:C.grey,alpha:ja});
+   runPacket(t,r2,3,{label:'""',col:C.orange});
+   chip(GX[3],PY+112,'422',C.orange,P(t,ta2+.1,.3),'failed validation');
+   illustrative();
+ }},
+
+/* 8 ─ Quick check */
+{title:'Quick check',dur:35,
+ caps:[[0,"Quick check. For each situation, guess the code before it appears."],
+       [3.5,"One. A staff member sends a message and gets a team back."],
+       [9.5,"Two. The request arrives with no message field at all."],
+       [15.5,"Three. A script calls the API but forgets the API key."],
+       [21.5,"Four. A test tool fires 5,000 requests in one second."],
+       [27.5,"Five. The model file failed to load when the server started."]],
+ draw(t){
+   const QS=[['A staff member sends a message and gets a team back.',5,'msg'],
+             ['The request arrives with no message field at all.',3,'{ }'],
+             ['A script calls the API but forgets the API key.',1,'no key'],
+             ['A test tool fires 5,000 requests in one second.',2,'×5000'],
+             ['The model file failed to load when the server started.',4,'msg']];
+   const flash=[0,0,0,0,0]; let glow=0;
+   QS.forEach(([,stop],k)=>{ const t0=3.5+6*k+1.6, ta=arr(t0,stop);
+     if(stop<5) flash[stop]=Math.max(flash[stop],gateFlash(t,ta)); else if(t>=ta&&t<ta+.6) glow=1; });
+   pipeline({flash,modelGlow:glow});
+   txt('Quick check · guess the code before it appears',640,90,{size:26,color:C.yellow,alpha:P(t,.3,.8)*(1-P(t,3.1,.4))});
+   QS.forEach(([q,stop,l],k)=>{
+     const s=3.5+6*k, t0=s+1.6, code=stop<5?GATES[stop].code:'200';
+     txt(`${k+1}.  ${q}`,640,90,{size:24,style:'italic',alpha:P(t,s,.5)*(k<4?1-P(t,s+5.6,.4):1)});
+     runPacket(t,t0,stop,{label:l,col:codeCol(code)});
+     const tc=stop<5?arr(t0,stop)+.1:arr(t0,5)+1.8, ca=P(t,tc,.3)*(k<4?1-P(t,s+7.2,.4):1);
+     if(stop<5) chip(GX[stop],PY+112,code,codeCol(code),ca); else chip(110,PY+112,code,C.green,ca);
+     const ax=640+(k-2)*180, aa=P(t,tc+.3,.5);
+     box(ax-75,600,150,50,{stroke:codeCol(code),alpha:aa}); txt(`${k+1} → ${code}`,ax,625,{size:20,font:MONO,color:codeCol(code),alpha:aa});
+   });
+ }},
+
+/* 9 ─ Recap */
+{title:'Recap',dur:28,
+ caps:[[0,"Let's put it together."],
+       [2,"One. An API is the agreed way to ask: the menu, not the kitchen."],
+       [7.5,"Two. HTTP carries the message. The API defines what you can ask. REST is one way to design it."],
+       [15,"Three. GET reads. POST sends data to be processed."],
+       [19,"Four. Every checkpoint has a code. 4xx: fix your request. 5xx: our side."],
+       [24.5,"Go deeper: how the API copes with a rush of requests, with work that can wait, and with failure."]],
+ draw(t){
+   txt('The journey of a request',640,105,{size:46,p:P(t,.2,1.5)});
+   const L=[["An API is the agreed way to ask: the menu, not the kitchen.",2.1],
+            ["HTTP carries it. The API defines what you can ask. REST designs it.",7.6],
+            ["GET reads. POST sends data to be processed.",15.1],
+            ["Every checkpoint has a code. 4xx: fix your request. 5xx: our side.",19.1]];
+   L.forEach(([s,t0],i)=>{ const y=225+i*95;
+     txt(String(i+1),150,y,{size:40,color:C.blue,alpha:P(t,t0,.6)});
+     txt(s,205,y,{size:25,align:'left',p:P(t,t0+.2,1.6)}); });
+   txt('Go deeper',640,622,{size:16,font:MONO,color:C.grey,alpha:P(t,24.7,1)});
+   txt('Monday, 09:00 · Is someone waiting? · A plan for failure',640,655,{size:18,font:MONO,color:C.yellow,alpha:P(t,25.3,1)});
+ }}
+];
+
+/* ======================================================================
+   EXPLORE: build a request
+   ====================================================================== */
+const $=id=>document.getElementById(id);
+let exRes=null, exT0=0;
+const RESULTS={
+  '404':['Not found: there is no such endpoint.','Client: fix the address. Retrying will not help.'],
+  '401':['Not authenticated: the API key is missing or wrong.','Client: send the correct key in the X-API-Key header.'],
+  '403':['Forbidden: we know who you are, but this key may not do this.','Client: use a key with the right permission.'],
+  '429':['Too many requests: slow down.','Client: wait, then retry more slowly.'],
+  '422':['Unprocessable: understood, but the data failed validation.','Client: fix the body before sending again.'],
+  '503':['Unavailable: the model is not ready.','Client: try again later, or send the ticket to the human queue.'],
+  '200':['OK: here is your answer  →  FINANCE · 0.91','Every checkpoint passed.'],
+  '200!':['OK (!): valid shape, useless content  →  HUMAN_REVIEW','Turn on the empty-message rule to catch this with 422.']
+};
+function evaluate(){
+  const e=$('exEndpoint').value, k=$('exKey').value, b=$('exBody').value, burst=$('exBurst').checked, down=$('exDown').checked, rule=$('exRule').checked;
+  const label=b==='ok'?'msg':b==='empty'?'""':'{ }';
+  if(e!=='/predictions') return {stop:0,code:'404',label:e};
+  if(k==='missing'||k==='wrong') return {stop:1,code:'401',label:k==='missing'?'no key':'bad key'};
+  if(k==='readonly') return {stop:1,code:'403',label:'read-only'};
+  if(burst) return {stop:2,code:'429',label:'×5000'};
+  if(b==='none'||(b==='empty'&&rule)) return {stop:3,code:'422',label};
+  if(down) return {stop:4,code:'503',label};
+  return {stop:5,code:'200',warn:b==='empty',label};
+}
+function renderExplore(){
+  const now=performance.now()/1000, flash=[0,0,0,0,0]; let glow=0, t=0;
+  if(exRes){ t=now-exT0; const ta=arr(0,exRes.stop); if(exRes.stop<5) flash[exRes.stop]=gateFlash(t,ta); else if(t>=ta&&t<ta+.6) glow=1; }
+  pipeline({flash,modelGlow:glow,rule:$('exRule').checked?1:0});
+  txt('BUILD A REQUEST · choose the options below, then press Send',40,38,{size:15,color:C.yellow,align:'left',font:MONO});
+  if(!exRes){ txt('Which checkpoint will stop it? Guess first, then send.',640,600,{size:22,style:'italic',color:C.grey}); return; }
+  const {stop,code,warn,label}=exRes, col=warn?C.yellow:codeCol(code);
+  runPacket(t,0,stop,{label,col:codeCol(code)});
+  const tc=stop<5?arr(0,stop)+.1:arr(0,5)+1.8, ca=P(t,tc,.3);
+  if(stop<5) chip(GX[stop],PY+112,code,col,ca); else chip(110,PY+112,code,col,ca);
+  const [title,todo]=RESULTS[warn?'200!':code], ra=P(t,tc+.2,.4);
+  box(140,560,1000,110,{stroke:col,fill:'rgba(0,0,0,.9)',alpha:ra});
+  txt(code+(warn?'!':''),225,615,{size:44,font:MONO,color:col,alpha:ra});
+  txt(title,310,597,{size:21,align:'left',alpha:ra});
+  txt(todo,310,636,{size:17,style:'italic',color:C.grey,align:'left',alpha:ra});
+}
+
+/* ======================================================================
+   PLAYER
+   ====================================================================== */
+const START=[]; let TOTAL=0; S.forEach(s=>{START.push(TOTAL); TOTAL+=s.dur;});
+let T=0, playing=false, lastTs=null, voiceOn=false, capKey=null, explore=false;
+const capEl=$('cap'), fillEl=$('fill'), timeEl=$('time'), playBtn=$('play'), bigPlay=$('bigplay'), voiceBtn=$('voice'), exBtn=$('exploreBtn');
+S.forEach((s,i)=>{
+  if(i>0){ const tk=document.createElement('div'); tk.className='tick'; tk.style.left=(START[i]/TOTAL*100)+'%'; $('bar').appendChild(tk); }
+  const b=document.createElement('button'); b.textContent=`${i+1} · ${s.title}`;
+  b.onclick=()=>{ setExplore(false); seek(START[i]+.001); if(!playing) setPlaying(true); };
+  $('chapters').appendChild(b);
+});
+const chapBtns=[...$('chapters').children];
+const locate=time=>{ for(let i=S.length-1;i>=0;i--) if(time>=START[i]) return {i,lt:Math.min(time-START[i],S[i].dur)}; return {i:0,lt:0}; };
+const fmt=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+/* ---------- NARRATOR: every word is spoken before the video moves on ---------- */
+const SAY=[[/“|”|"/g,''],[/TF-IDF/g,'T F I D F'],[/\b2xx\b/g,'two hundreds'],[/\b4xx\b/g,'four hundreds'],[/\b5xx\b/g,'five hundreds'],
+  [/HUMAN_REVIEW/g,'human review'],[/\bFINANCE\b/g,'Finance'],[/\bESTATES\b/g,'Estates'],[/\bIT\b/g,'I T'],[/\bHR\b/g,'H R'],
+  [/\bCCIO\b/g,'C C I O'],[/(\d{2}):(\d{2})/g,(m,h,mi)=>`${+h} ${mi==='00'?"o'clock":mi}`],[/7f3a/g,'7 F 3 A'],[/\//g,' slash ']];
+const NAR={u:null,speaking:false,until:0,voice:null,list:[]};
+const HOLDS=[]; S.forEach((s,i)=>{ s.caps.forEach((c,k)=>{ if(k>0) HOLDS.push(START[i]+c[0]-.02); }); HOLDS.push(START[i]+s.dur-.6); }); HOLDS.sort((a,b)=>a-b);
+const vSel=document.createElement('select'); vSel.title='Narrator voice';
+vSel.style.cssText='background:#16161a;border:1px solid #2a2a30;color:#ddd;border-radius:8px;height:38px;padding:0 8px;font-family:inherit;font-size:13px;max-width:200px';
+voiceBtn.after(vSel);
+const vNorm=l=>(l||'').replace('_','-');
+const vRank=v=>{ const l=vNorm(v.lang); return /^en-GB/i.test(l)?0:/^en-US/i.test(l)?1:/^en/i.test(l)?2:9; };
+const vGood=v=>/natural|online|google|neural|premium|enhanced/i.test(v.name)?1:0;
+const vName=v=>v.name.replace(/^(Microsoft|Google|Apple) /,'').replace(/\s*-\s*English.*$/,'').slice(0,34);
+function pickVoices(){
+  if(!('speechSynthesis' in window)) return;
+  const vs=speechSynthesis.getVoices().filter(v=>vRank(v)<9).sort((a,b)=>vRank(a)-vRank(b)||vGood(b)-vGood(a));
+  if(!vs.length) return;
+  NAR.list=vs; vSel.innerHTML='';
+  const label={0:'🇬🇧 UK English',1:'🇺🇸 US English',2:'Other English'}; let g=null, og=null;
+  vs.forEach((v,i)=>{
+    const r=vRank(v);
+    if(r!==g){ g=r; og=document.createElement('optgroup'); og.label=label[r]; vSel.appendChild(og); }
+    const o=document.createElement('option'); o.value=i; o.textContent=vName(v)+' · '+vNorm(v.lang); og.appendChild(o);
+  });
+  if(!vs.some(v=>vRank(v)===0)){
+    const og2=document.createElement('optgroup'); og2.label='No UK voice on this device';
+    const o=document.createElement('option'); o.value='help'; o.textContent='➕ How to add a UK English voice'; og2.appendChild(o); vSel.appendChild(og2);
+  }
+  const cur=NAR.voice?vs.findIndex(v=>v.name===NAR.voice.name):-1, i=cur>=0?cur:0;
+  vSel.value=String(i); NAR.voice=vs[i];
+}
+if('speechSynthesis' in window){ speechSynthesis.onvoiceschanged=pickVoices; pickVoices(); [300,1200,3500].forEach(ms=>setTimeout(pickVoices,ms)); }
+else vSel.style.display='none';
+vSel.onchange=()=>{
+  if(vSel.value==='help'){
+    capEl.textContent='To add a UK voice — Windows: Settings → Time & language → Speech → Add voices → English (United Kingdom). Mac: System Settings → Accessibility → Spoken Content → System voice → Manage Voices → English (UK). Or open this page in Microsoft Edge or Google Chrome, which include free UK voices. Then reload the page.';
+    vSel.value=String(Math.max(0,NAR.list.indexOf(NAR.voice))); return;
+  }
+  NAR.voice=NAR.list[+vSel.value]; stopVoice(); capKey=null;
+};
+function speak(s){
+  if(!voiceOn||!playing||!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const text=SAY.reduce((a,[r,v])=>a.replace(r,v),s);
+  const u=new SpeechSynthesisUtterance(text);
+  if(NAR.voice){ u.voice=NAR.voice; u.lang=NAR.voice.lang; } else u.lang='en-GB';
+  u.rate=1;
+  NAR.u=u; NAR.speaking=true; NAR.until=performance.now()+(text.split(/\s+/).length/2+4)*1000;
+  u.onend=u.onerror=()=>{ if(NAR.u===u) NAR.speaking=false; };
+  setTimeout(()=>{ if(NAR.u===u) speechSynthesis.speak(u); },80);
+}
+function stopVoice(){ NAR.speaking=false; NAR.u=null; if('speechSynthesis' in window) speechSynthesis.cancel(); }
+function narrating(){ if(!NAR.speaking) return false; if(performance.now()>NAR.until){ NAR.speaking=false; return false; } return true; }
+function updateCaption(i,lt){
+  const caps=S[i].caps; let ci=0; caps.forEach((c,k)=>{ if(lt>=c[0]) ci=k; });
+  const key=i+'-'+ci; if(key!==capKey){ capKey=key; capEl.textContent=caps[ci][1]; speak(caps[ci][1]); }
+}
+function render(){
+  ctx.setTransform(dpr,0,0,dpr,0,0); ctx.globalAlpha=1; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+  if(explore){ renderExplore(); return; }
+  const {i,lt}=locate(T), s=S[i], last=i===S.length-1;
+  ctx.globalAlpha=Math.min(P(lt,0,.45), last?1:1-P(lt,s.dur-.55,.55));
+  s.draw(lt); ctx.globalAlpha=1;
+  txt(`${i+1} · ${s.title}`,40,38,{size:15,color:'#555',align:'left',font:MONO});
+  updateCaption(i,lt);
+  fillEl.style.width=(T/TOTAL*100)+'%'; timeEl.textContent=`${fmt(T)} / ${fmt(TOTAL)}`;
+  chapBtns.forEach((b,k)=>b.classList.toggle('active',k===i));
+}
+function setPlaying(v){
+  playing=v; playBtn.textContent=v?'❚❚':'▶';
+  if(v){ setExplore(false); bigPlay.style.display='none'; if(T>=TOTAL) seek(0); capKey=null; } else stopVoice();
+}
+function seek(time){ T=clamp(time,0,TOTAL); capKey=null; stopVoice(); }
+function setExplore(v){
+  if(explore===v) return; explore=v; exBtn.classList.toggle('on',v); $('explorePanel').classList.toggle('show',v);
+  if(v){ if(playing) setPlaying(false); bigPlay.style.display='none'; exRes=null;
+    capEl.textContent='Build a request: choose the endpoint, key and body, switch on any problems, then press Send.'; }
+  else capKey=null;
+}
+function frame(ts){
+  if(playing){
+    let dt=lastTs!=null?Math.min((ts-lastTs)/1000,.1):0;
+    if(voiceOn&&narrating()){ const h=HOLDS.find(x=>x>=T-1e-6); if(h!==undefined&&T+dt>=h) dt=Math.max(0,h-T); }
+    T+=dt;
+    if(T>=TOTAL){ T=TOTAL; if(!(voiceOn&&narrating())){ setPlaying(false); bigPlay.style.display='block'; bigPlay.textContent='↺'; } }
+  }
+  lastTs=ts; render(); requestAnimationFrame(frame);
+}
+cv.addEventListener('pointerdown',()=>{ if(!explore) setPlaying(!playing); });
+playBtn.onclick=()=>setPlaying(!playing);
+bigPlay.onclick=()=>setPlaying(true);
+$('restart').onclick=()=>{ seek(0); setPlaying(true); };
+voiceBtn.onclick=()=>{ voiceOn=!voiceOn; voiceBtn.textContent=voiceOn?'🔊 Voice on':'🔈 Voice off'; voiceBtn.classList.toggle('on',voiceOn); if(!voiceOn) stopVoice(); else capKey=null; };
+exBtn.onclick=()=>setExplore(!explore);
+$('exSend').onclick=()=>{ exRes=evaluate(); exT0=performance.now()/1000;
+  capEl.textContent='Watch which checkpoint stops it. Then change one option and send again.'; };
+$('bar').onclick=e=>{ setExplore(false); const r=$('bar').getBoundingClientRect(); seek((e.clientX-r.left)/r.width*TOTAL); };
+document.addEventListener('keydown',e=>{
+  if(['INPUT','SELECT'].includes(e.target.tagName)) return;
+  if(e.code==='Space'){ e.preventDefault(); setPlaying(!playing); }
+  if(e.code==='ArrowRight'){ const {i}=locate(T); if(i<S.length-1) seek(START[i+1]+.001); }
+  if(e.code==='ArrowLeft'){ const {i,lt}=locate(T); seek(START[lt<1.5&&i>0?i-1:i]+.001); }
+});
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

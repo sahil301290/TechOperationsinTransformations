@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>From a message to a team · Opening: the client and the problem</title>
+<meta name="video-id" content="s00a">
+<meta name="section" content="Opening: the client and the problem">
+<style>
+  :root{--blue:#58C4DD;--yellow:#F7D96F;--grey:#8a8a8a}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0b0b0d;color:#e8e8e8;font-family:Georgia,'Times New Roman',serif;display:flex;justify-content:center;padding:24px 16px 40px;min-height:100vh}
+  .wrap{width:100%;max-width:1100px}
+  header{margin-bottom:16px}
+  header h1{font-weight:normal;font-size:28px;letter-spacing:.3px}
+  header h1 span{color:var(--blue)}
+  header p{color:var(--grey);font-style:italic;margin-top:4px;font-size:15px}
+  .stage{position:relative;background:#000;border-radius:12px;overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,.7),0 0 0 1px #1f1f24}
+  canvas{display:block;width:100%;height:auto;cursor:pointer}
+  #bigplay{position:absolute;inset:0;margin:auto;width:96px;height:96px;border-radius:50%;border:2px solid var(--blue);background:rgba(88,196,221,.08);color:var(--blue);font-size:36px;cursor:pointer;transition:transform .25s,background .25s;padding-left:8px}
+  #bigplay:hover{transform:scale(1.08);background:rgba(88,196,221,.18)}
+  .caption{min-height:70px;padding:16px 8px 6px;text-align:center;font-size:20px;line-height:1.45;color:#ddd;transition:opacity .3s}
+  .controls{display:flex;align-items:center;gap:10px;margin-top:6px}
+  .controls button{background:#16161a;border:1px solid #2a2a30;color:#ddd;border-radius:8px;height:38px;min-width:42px;padding:0 12px;font-size:15px;cursor:pointer;font-family:inherit;transition:border-color .2s,color .2s}
+  .controls button:hover{border-color:var(--blue);color:var(--blue)}
+  .controls button.on{border-color:var(--yellow);color:var(--yellow)}
+  .bar{position:relative;flex:1;height:8px;background:#1c1c22;border-radius:6px;cursor:pointer}
+  .fill{position:absolute;left:0;top:0;bottom:0;background:var(--blue);border-radius:6px;width:0}
+  .tick{position:absolute;top:-3px;width:2px;height:14px;background:#444}
+  #time{font-family:Consolas,monospace;font-size:13px;color:var(--grey);min-width:92px;text-align:right}
+  .chapters{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+  .chapters button{background:transparent;border:1px solid #26262c;color:#9a9a9a;border-radius:999px;padding:6px 14px;font-size:13px;cursor:pointer;font-family:Consolas,monospace;transition:all .2s}
+  .chapters button:hover{color:#fff;border-color:#555}
+  .chapters button.active{color:#000;background:var(--blue);border-color:var(--blue)}
+  .hint{color:#555;font-size:12px;margin-top:14px;font-family:Consolas,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>From a <span>message</span> to a team</h1>
+    <p>The whole journey in under three minutes: words → numbers → probabilities → API → cloud</p>
+    <span style="display:inline-block;margin-top:10px;font-family:Consolas,monospace;font-size:12px;color:#F7D96F;border:1px solid #3a3a2a;border-radius:999px;padding:4px 12px">Section: Opening · the client and the problem</span>
+  </header>
+  <div class="stage">
+    <canvas id="cv" aria-label="Animated explainer"></canvas>
+    <button id="bigplay" aria-label="Play">▶</button>
+  </div>
+  <div class="caption" id="cap" aria-live="polite"></div>
+  <div class="controls">
+    <button id="play" aria-label="Play or pause">▶</button>
+    <button id="restart" aria-label="Restart">↺</button>
+    <div class="bar" id="bar"><div class="fill" id="fill"></div></div>
+    <span id="time">0:00 / 0:00</span>
+    <button id="voice">🔈 Voice off</button>
+  </div>
+  <div class="chapters" id="chapters"></div>
+  <div class="hint">Space = play/pause · ← → = previous/next chapter · click the bar to jump</div>
+</div>
+
+<script>
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const W = 1280, H = 720;
+let dpr = 1;
+function resize(){ dpr = Math.min(window.devicePixelRatio || 1, 2); cv.width = W*dpr; cv.height = H*dpr; }
+resize(); window.addEventListener('resize', resize);
+
+/* ---------- palette (3b1b-like) ---------- */
+const C = { white:'#ECECEC', grey:'#7d7d7d', dim:'#444', blue:'#58C4DD', yellow:'#F7D96F', green:'#83C167',
+            red:'#FC6255', teal:'#5CD0B3', purple:'#B189C6', orange:'#FF9A4D' };
+const TEAM = { HR:C.purple, FINANCE:C.yellow, IT:C.blue, ESTATES:C.orange };
+const SERIF = 'Georgia, "Times New Roman", serif';
+const MONO = 'Consolas, "SFMono-Regular", "Liberation Mono", monospace';
+
+/* ---------- maths helpers ---------- */
+const clamp = (x,a=0,b=1) => Math.max(a, Math.min(b, x));
+const smooth = x => { x = clamp(x); return x*x*(3-2*x); };
+const P = (t,s,d) => smooth((t-s)/d);
+const lerp = (a,b,p) => a + (b-a)*p;
+
+/* ---------- drawing helpers ---------- */
+function fontStr(size, font, style){ return [style, size+'px', font].filter(Boolean).join(' '); }
+function tw(s, size, font=SERIF, style=''){ ctx.save(); ctx.font = fontStr(size,font,style); const w = ctx.measureText(s).width; ctx.restore(); return w; }
+function txt(s, x, y, o={}){
+  const {size=28, color=C.white, align='center', alpha=1, font=SERIF, style='', p=1} = o;
+  if (alpha <= 0 || p <= 0) return;
+  ctx.save(); ctx.globalAlpha *= alpha; ctx.font = fontStr(size,font,style);
+  ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = 'middle';
+  if (p < 1){
+    const w = ctx.measureText(s).width;
+    const x0 = align==='center' ? x-w/2 : align==='right' ? x-w : x;
+    ctx.beginPath(); ctx.rect(x0-4, y-size, (w+8)*p, size*2); ctx.clip();
+  }
+  ctx.fillText(s, x, y); ctx.restore();
+}
+function rr(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function box(x,y,w,h,o={}){
+  const {stroke=C.white, fill=null, alpha=1, lw=2, r=10, p=1, dash=null} = o;
+  if (alpha <= 0 || p <= 0) return;
+  ctx.save(); ctx.globalAlpha *= alpha; rr(x,y,w,h,r);
+  if (fill){ ctx.fillStyle = fill; ctx.fill(); }
+  const L = 2*(w+h);
+  if (p < 1) ctx.setLineDash([L*p, L]); else if (dash) ctx.setLineDash(dash);
+  ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.stroke(); ctx.restore();
+}
+function rect(x,y,w,h,color,alpha=1){ if (alpha<=0 || w<=0) return; ctx.save(); ctx.globalAlpha *= alpha; ctx.fillStyle = color; ctx.fillRect(x,y,w,h); ctx.restore(); }
+function seg(x1,y1,x2,y2,o={}){
+  const {color=C.white, lw=2, alpha=1, p=1, dash=null} = o;
+  if (p<=0 || alpha<=0) return;
+  ctx.save(); ctx.globalAlpha *= alpha; ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.lineCap = 'round';
+  if (dash) ctx.setLineDash(dash);
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(lerp(x1,x2,p), lerp(y1,y2,p)); ctx.stroke(); ctx.restore();
+}
+function arrow(x1,y1,x2,y2,o={}){
+  const {color=C.white, p=1, alpha=1, lw=2.5, head=13} = o;
+  if (p<=0 || alpha<=0) return;
+  seg(x1,y1,x2,y2,{color,lw,alpha,p});
+  const x = lerp(x1,x2,p), y = lerp(y1,y2,p), a = Math.atan2(y2-y1, x2-x1);
+  ctx.save(); ctx.globalAlpha *= alpha; ctx.fillStyle = color; ctx.beginPath();
+  ctx.moveTo(x,y); ctx.lineTo(x-head*Math.cos(a-.4), y-head*Math.sin(a-.4)); ctx.lineTo(x-head*Math.cos(a+.4), y-head*Math.sin(a+.4));
+  ctx.closePath(); ctx.fill(); ctx.restore();
+}
+function dot(x,y,r,color,alpha=1){ if(alpha<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.fillStyle=color; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); ctx.restore(); }
+function ring(x,y,r,color,alpha=1,lw=2){ if(alpha<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke(); ctx.restore(); }
+function jsonBox(lines, cx, cy, alpha, color=C.white){
+  if (alpha<=0) return;
+  const size=18, lh=27, w = Math.max(...lines.map(l=>tw(l,size,MONO))) + 44, h = lines.length*lh + 26;
+  box(cx-w/2, cy-h/2, w, h, {stroke:'#3a3a42', fill:'rgba(255,255,255,0.035)', alpha});
+  lines.forEach((l,i)=> txt(l, cx-w/2+22, cy-h/2+13+lh/2+i*lh, {size, font:MONO, align:'left', color, alpha}));
+}
+function illustrative(){ txt('illustrative numbers', 1250, 700, {size:13, color:'#4a4a4a', align:'right', font:MONO}); }
+
+/* ---------- model numbers for scene 3 ---------- */
+const T3 = ['FINANCE','HR','IT','ESTATES'];
+const WORDS3 = [['expenses',.82],['reimbursed',.95],['not',.30]];
+const WM = [[1.95,.3,-.5,-.6],[1.7,.4,-.6,-.7],[.2,.1,.4,.3]];
+const SC = T3.map((_,j)=> WORDS3.reduce((s,[,f],i)=> s + f*WM[i][j], 0));
+const EX = SC.map(Math.exp), SUMEX = EX.reduce((a,b)=>a+b, 0), PR = EX.map(e=>e/SUMEX);
+
+function formula(cx, cy, a){
+  if (a<=0) return;
+  txt('p(team)  =', cx-40, cy, {size:30, style:'italic', align:'right', alpha:a});
+  const x0 = cx-20;
+  txt('e', x0+50, cy-24, {size:30, style:'italic', align:'left', alpha:a});
+  txt('score', x0+67, cy-38, {size:17, style:'italic', align:'left', alpha:a});
+  seg(x0, cy, x0+170, cy, {lw:2, alpha:a});
+  txt('Σ', x0+22, cy+28, {size:30, align:'left', alpha:a});
+  txt('e', x0+60, cy+28, {size:30, style:'italic', align:'left', alpha:a});
+  txt('score', x0+77, cy+14, {size:17, style:'italic', align:'left', alpha:a});
+  txt('← softmax', x0+200, cy, {size:20, color:C.blue, font:MONO, align:'left', alpha:a});
+}
+
+/* ======================================================================
+   SCENES
+   ====================================================================== */
+const S = [
+/* ---------------- 1. The problem ---------------- */
+{ title:'The problem', dur:13.5,
+  caps:[[0,"Harbourside Health has 4,000 staff, and one shared inbox."],
+        [4,"Every staff message must reach one of four teams: HR, Finance, IT or Estates."],
+        [9.5,"Let's follow one message on its whole journey."]],
+  draw(t){
+    txt('SECTION · OPENING: THE CLIENT AND THE PROBLEM', 640, 120, {size:15, font:MONO, color:C.yellow, alpha:P(t,.2,.8)*(1-P(t,9,.6))});
+    txt('How does a message find its team?', 640, 220, {size:54, p:P(t,.3,1.8)});
+    txt('a machine-learning model, wrapped in an API, running in the cloud', 640, 292, {size:24, color:C.grey, style:'italic', alpha:P(t,1.8,1)});
+    ['HR','FINANCE','IT','ESTATES'].forEach((k,i)=>{
+      const x = 280+i*240, a = P(t,4.3+i*.5,.9);
+      box(x-95, 470, 190, 66, {stroke:TEAM[k], alpha:a, p:a});
+      txt(k, x, 503, {size:24, color:TEAM[k], font:MONO, alpha:a});
+    });
+    txt('4,000 staff', 640, 380, {size:22, color:C.grey, font:MONO, alpha:P(t,1,.8)*(1-P(t,9.2,.5))});
+    const pm = P(t,10,2.2), a = P(t,9.5,.6)*(1-P(t,12.1,.5));
+    txt('“My expenses have not been reimbursed”', lerp(640,520,pm), lerp(390,455,pm), {size:lerp(24,13,pm), style:'italic', alpha:a});
+    box(425, 470, 190, 66, {stroke:C.yellow, lw:4, alpha:P(t,12,.4)});
+  }},
+
+/* ---------------- 2. Words → numbers ---------------- */
+{ title:'Words → numbers', dur:21,
+  caps:[[0,"A computer cannot do maths on words. So first, we turn each word into a number."],
+        [6.5,"TF-IDF gives each word a weight. Common words like “my” get a small weight."],
+        [12.5,"Rare, telling words like “reimbursed” get a large weight."],
+        [16.5,"These numbers are the features: what the model actually sees."]],
+  draw(t){
+    const words=['my','expenses','have','not','been','reimbursed'], wt=[.12,.82,.18,.30,.16,.95];
+    const size=34, ws=words.map(w=>tw(w,size)), sp=tw(' ',size), gap=46;
+    const sum=ws.reduce((a,b)=>a+b,0);
+    let c0 = 640-(sum+sp*5)/2, c1 = 640-(sum+gap*5)/2;
+    const pA=P(t,.3,1.8), pB=P(t,3,1.2);
+    txt('word', 250, 205, {size:20, color:C.grey, style:'italic', align:'left', alpha:P(t,7,1)});
+    txt('TF-IDF weight', 480, 205, {size:20, color:C.grey, style:'italic', align:'left', alpha:P(t,7,1)});
+    words.forEach((w,i)=>{
+      const sx=c0, fx=c1; c0 += ws[i]+sp; c1 += ws[i]+gap;
+      const pc = P(t,6.6+i*.25,1.3), ly = 250+i*64;
+      const x = lerp(lerp(sx,fx,pB), 250, pc), y = lerp(150, ly, pc);
+      const hot = wt[i]>.5 && t>12.6;
+      txt(w, x, y, {size, align:'left', p:clamp(pA*6-i), color: hot?C.yellow:C.white});
+      const pb = P(t,9+i*.35,1), bw = wt[i]*560*pb;
+      rect(480, ly-14, bw, 28, wt[i]>.5?C.yellow:'#5a5a5a', .9);
+      txt(wt[i].toFixed(2), 480+bw+14, ly, {size:20, font:MONO, align:'left', alpha:pb, color: wt[i]>.5?C.yellow:C.grey});
+    });
+    [1,5].forEach(i=> box(232, 250+i*64-26, 900, 52, {stroke:C.yellow, alpha:.8, p:P(t,12.7+(i===5?.3:0),1)}));
+    txt('features = [0.12, 0.82, 0.18, 0.30, 0.16, 0.95]', 640, 660, {size:24, font:MONO, color:C.blue, p:P(t,16.6,1.6)});
+    illustrative();
+  }},
+
+/* ---------------- 3. Weigh the evidence ---------------- */
+{ title:'Weigh the evidence', dur:24.5,
+  caps:[[0,"Logistic regression has learned how strongly each word points to each team."],
+        [5,"Green lines push a team up. Red lines push it down. Thicker lines push harder."],
+        [11,"Add up the evidence, and every team gets a score."],
+        [15.5,"Then softmax turns the scores into probabilities that add up to one."],
+        [20.5,"Finance wins, with a probability of 0.91."]],
+  draw(t){
+    const WY = [210,330,450], TY = [160,270,380,490];
+    const pm = P(t,16.5,2.2), lineFade = 1 - .7*P(t,15.5,1);
+    WORDS3.forEach(([w,f],i)=>{
+      const a = P(t,.2+i*.3,.8);
+      txt(w, 190, WY[i], {size:32, color:C.yellow, alpha:a});
+      txt(f.toFixed(2), 190, WY[i]+32, {size:17, font:MONO, color:C.grey, alpha:a});
+    });
+    T3.forEach((k,j)=> txt(k, 690, TY[j], {size:22, font:MONO, color:TEAM[k], align:'right', alpha:P(t,1.5+j*.3,.8)}));
+    WORDS3.forEach((_,i)=> T3.forEach((_,j)=>{
+      const w = WM[i][j];
+      seg(300, WY[i], 560, TY[j], {color: w>0?C.green:C.red, lw:1+Math.abs(w)*2.3, alpha:.8*lineFade, p:P(t,5.2+i*.9+j*.15,1.2)});
+    }));
+    // score / probability bars
+    const axisX = lerp(880,760,pm);
+    seg(axisX, 125, axisX, 525, {color:C.grey, lw:1.5, alpha:P(t,10.8,.8)});
+    txt('score', 880, 108, {size:20, style:'italic', color:C.grey, alpha:P(t,10.8,.8)*(1-P(t,16.6,.6))});
+    txt('probability', 760, 108, {size:20, style:'italic', color:C.grey, align:'left', alpha:P(t,17.6,.8)});
+    T3.forEach((k,j)=>{
+      const pg = P(t,11.3+j*.45,1.1);
+      const sw = Math.abs(SC[j])*70*pg, sx = SC[j]>=0 ? 880 : 880-sw;
+      const x = lerp(sx,760,pm), w = lerp(sw, PR[j]*420, pm);
+      rect(x, TY[j]-17, w, 34, TEAM[k], .88*pg);
+      const a1 = pg*(1-P(t,16.6,.5)), a2 = P(t,18,.8);
+      if (SC[j]>=0) txt(SC[j].toFixed(2), x+w+12, TY[j], {size:19, font:MONO, align:'left', alpha:a1});
+      else txt(SC[j].toFixed(2), x-12, TY[j], {size:19, font:MONO, align:'right', alpha:a1});
+      txt(PR[j].toFixed(2), x+w+12, TY[j], {size:19, font:MONO, align:'left', alpha:a2});
+    });
+    formula(560, 625, P(t,15.6,1));
+    box(560, TY[0]-32, 640, 64, {stroke:C.yellow, lw:3, p:P(t,20.6,1.2)});
+    illustrative();
+  }},
+
+/* ---------------- 4. Confidence & threshold ---------------- */
+{ title:'Confidence', dur:23,
+  caps:[[0,"The highest bar is the prediction. Its height is the confidence."],
+        [4.8,"“My access card isn't working” could mean the card reader, or the access rights. The model is not sure."],
+        [12.3,"And 0.91 is not a promise. So we draw a line: the threshold."],
+        [17.5,"Above 0.60, the ticket is routed automatically. Below it, a person reviews it."]],
+  draw(t){
+    const panels = [
+      {x:70, msg:'“My expenses have not been reimbursed”', pr:[.91,.07,.01,.01], t0:.6},
+      {x:670, msg:'“My access card isn’t working”', pr:[.08,.10,.43,.39], t0:5}
+    ];
+    const base = 500, maxH = 320, thrY = base - .6*maxH;
+    panels.forEach((pn,k)=>{
+      const a = P(t, k?4.6:0, .8);
+      box(pn.x, 70, 540, 560, {stroke:'#2c2c33', alpha:a});
+      txt(pn.msg, pn.x+270, 110, {size:21, style:'italic', alpha:a});
+      seg(pn.x+40, base, pn.x+500, base, {color:C.grey, lw:1.5, alpha:a});
+      T3.forEach((tm,j)=>{
+        const cx = pn.x+90+j*120, pg = P(t, pn.t0+j*.3, 1.2), h = pn.pr[j]*maxH*pg;
+        const below = t>15.6 && pn.pr[j] < .6;
+        rect(cx-35, base-h, 70, h, TEAM[tm], below ? .35 : .9);
+        txt(pn.pr[j].toFixed(2), cx, base-h-16, {size:18, font:MONO, alpha:pg});
+        txt(tm, cx, base+24, {size:15, font:MONO, color:TEAM[tm], alpha:a});
+      });
+    });
+    txt('?', 670+390, 250, {size:52, color:C.yellow, alpha:P(t,7.5,.8)});
+    txt('an estimate, not a guarantee', 340, 160, {size:18, style:'italic', color:C.grey, alpha:P(t,12.4,1)});
+    seg(60, thrY, 1220, thrY, {color:C.red, lw:2.5, dash:[12,9], p:P(t,14,1.6)});
+    txt('threshold = 0.60', 1215, thrY-18, {size:18, font:MONO, color:C.red, align:'right', alpha:P(t,15,.8)});
+    txt('→ FINANCE · routed automatically', 340, 585, {size:21, color:C.green, p:P(t,17.6,1.2)});
+    txt('→ HUMAN_REVIEW · a person checks', 940, 585, {size:21, color:C.yellow, p:P(t,18.8,1.2)});
+    illustrative();
+  }},
+
+/* ---------------- 5. The API ---------------- */
+{ title:'The API', dur:28,
+  caps:[[0,"After training, the model is just a file. Nothing else can use it yet."],
+        [5.5,"So we put it behind an API: an agreed way for one program to ask another."],
+        [11.7,"The staff portal sends a POST request to /predictions, with the message as JSON."],
+        [17.5,"The API runs the model, which is inference, and sends JSON back."],
+        [22.5,"When something goes wrong, the status code tells the client what happened."]],
+  draw(t){
+    const pmv = P(t,5.6,1.4), bA = P(t,5.8,1.2);
+    // client + server
+    box(100, 280, 280, 150, {stroke:C.blue, p:bA, alpha:bA});
+    txt('Staff portal', 240, 345, {size:26, alpha:bA});
+    txt('client', 240, 382, {size:17, style:'italic', color:C.grey, alpha:bA});
+    box(860, 220, 320, 260, {stroke:C.teal, p:bA, alpha:bA});
+    txt('API · FastAPI', 1020, 250, {size:22, alpha:bA});
+    txt('server', 1020, 456, {size:17, style:'italic', color:C.grey, alpha:bA});
+    // the model file
+    const mx = lerp(550,930,pmv), my = lerp(305,290,pmv), mw = lerp(180,180,pmv);
+    const glow = P(t,17.6,.5)*(1-P(t,19.4,.6));
+    box(mx, my, mw, 110, {stroke: glow>0.05 ? C.yellow : C.white, lw: 2+glow*3, alpha:P(t,.2,.8)});
+    txt('router.joblib', mx+mw/2, my+45, {size:18, font:MONO, alpha:P(t,.2,.8)});
+    txt('model', mx+mw/2, my+75, {size:16, style:'italic', color:C.grey, alpha:P(t,.2,.8)});
+    txt('just a file', 640, 450, {size:22, style:'italic', color:C.grey, alpha:P(t,1,.8)*(1-P(t,5,.5))});
+    txt('inference', 1020, 428, {size:16, font:MONO, color:C.yellow, alpha:glow});
+    // request
+    arrow(385, 315, 855, 315, {color:C.yellow, p:P(t,11.8,1.2)});
+    txt('POST /predictions', 620, 295, {size:18, font:MONO, color:C.yellow, alpha:P(t,12,.8)});
+    const jA = 1 - P(t,22.2,.6);
+    jsonBox(['{','  "message": "My overtime payment is missing"','}'], 610, 150, P(t,12.3,.9)*jA, C.white);
+    // response
+    arrow(855, 400, 385, 400, {color:C.green, p:P(t,18.6,1.2)});
+    txt('200 OK', 620, 422, {size:18, font:MONO, color:C.green, alpha:P(t,19.8,.6)});
+    jsonBox(['{','  "team": "FINANCE",','  "confidence": 0.91,','  "human_review": false','}'], 620, 580, P(t,19,.9)*jA, C.green);
+    // status codes
+    const codes = [['200','it worked',C.green],['401','no / wrong key',C.orange],['404','no such endpoint',C.orange],
+                   ['422','bad data',C.orange],['429','too many requests',C.orange],['503','model unavailable',C.red]];
+    txt('2xx it worked  ·  4xx problem with your request  ·  5xx problem on our side', 640, 522, {size:16, font:MONO, color:C.grey, alpha:P(t,22.6,.8)});
+    codes.forEach(([c,d,col],k)=>{
+      const a = P(t,23+k*.35,.6), x = 640-2.5*190+k*190;
+      box(x-87, 560, 174, 78, {stroke:col, alpha:a});
+      txt(c, x, 588, {size:28, font:MONO, color:col, alpha:a});
+      txt(d, x, 620, {size:14, color:C.white, alpha:a});
+    });
+  }},
+
+/* ---------------- 6. Cloud & scale ---------------- */
+{ title:'Cloud & scale', dur:30,
+  caps:[[0,"In the Codespace, only you can reach the API. On Azure App Service, it gets a public address."],
+        [7.8,"Monday, 09:00. Everyone logs their problems at once."],
+        [11.5,"A load balancer spreads the requests across identical copies of the API."],
+        [16.5,"If a copy fails its health check, the load balancer stops sending to it."],
+        [22.5,"And if the model is down, tickets go to the human queue. No ticket is lost."]],
+  draw(t){
+    // phase A: codespace → azure
+    const A = P(t,.2,.8)*(1-P(t,7.2,.7));
+    if (A > 0){
+      box(120, 270, 360, 160, {stroke:C.white, alpha:A});
+      txt('Your Codespace', 300, 330, {size:28, alpha:A});
+      txt('only you can reach it', 300, 372, {size:18, style:'italic', color:C.grey, alpha:A});
+      arrow(490, 350, 790, 350, {color:C.yellow, p:P(t,1.8,1.4), alpha:A});
+      txt('az webapp up', 640, 325, {size:20, font:MONO, color:C.yellow, alpha:A*P(t,2.4,.8)});
+      box(800, 270, 360, 160, {stroke:C.blue, lw:2.5, alpha:A*P(t,3,.8)});
+      txt('Azure App Service', 980, 330, {size:28, color:C.blue, alpha:A*P(t,3,.8)});
+      txt('public address · always on', 980, 372, {size:18, style:'italic', color:C.grey, alpha:A*P(t,3,.8)});
+      txt('PaaS: you bring the app, Azure runs the platform', 640, 500, {size:20, style:'italic', color:C.grey, alpha:A*P(t,4.5,1)});
+    }
+    // phase B: load balancing + fallback
+    const B = P(t,8.2,1);
+    if (B <= 0) return;
+    const CY = [170,300,430], HQ = 595;
+    const failed1 = t >= 17, down = t >= 23;
+    for (let k=0;k<5;k++) ring(110, 300+k*30, 9, C.blue, B);
+    txt('Staff', 110, 470, {size:20, color:C.grey, style:'italic', alpha:B});
+    box(360, 320, 170, 80, {stroke:C.white, alpha:B});
+    txt('Load', 445, 348, {size:20, alpha:B}); txt('balancer', 445, 374, {size:20, alpha:B});
+    CY.forEach((cy,k)=>{
+      const bad = down || (k===1 && failed1);
+      seg(530, 360, 760, cy, {color:'#333', lw:1.5, alpha:B});
+      box(760, cy-35, 260, 70, {stroke: bad?C.red:C.teal, alpha:B*(down?.55:1)});
+      txt(`API copy ${k+1} + model`, 890, cy, {size:20, alpha:B*(down?.5:1)});
+    });
+    txt('✗ failed health check', 1032, CY[1], {size:15, color:C.red, align:'left', alpha:P(t,17,.6)*(1-P(t,23,.5))});
+    txt('✗ model down', 1032, 300, {size:15, color:C.red, align:'left', alpha:P(t,23,.6)});
+    seg(530, 360, 760, HQ, {color: down?C.yellow:'#333', lw:1.5, dash:[6,6], alpha:B});
+    box(760, HQ-35, 260, 70, {stroke: down?C.yellow:C.dim, lw: down?3:2, alpha:B});
+    txt('Human queue', 890, HQ, {size:20, color: down?C.yellow:C.grey, alpha:B});
+    txt('⚠ alert sent to the on-call engineer', 890, 670, {size:16, color:C.yellow, alpha:P(t,23.8,.8)});
+    // request dots
+    const knots = [0,.8,1.0,1.8,2.1];
+    for (let i=0;;i++){
+      const s = 8.6 + i*.2; if (s > t || s > 29.4) break;
+      const a = t - s; if (a > 2.1) continue;
+      let tgt, col = C.blue;
+      if (s < 16.4) tgt = CY[i%3];
+      else if (s < 22.4) tgt = [CY[0],CY[2]][i%2];
+      else { tgt = HQ; col = C.yellow; }
+      const sy = 300 + (i*7%5)*30;
+      const pts = [[125,sy],[360,360],[530,360],[770,tgt],[830,tgt]];
+      let pos = null;
+      for (let k=0;k<knots.length-1;k++){
+        if (a <= knots[k+1]){ const u=(a-knots[k])/(knots[k+1]-knots[k]); pos=[lerp(pts[k][0],pts[k+1][0],u), lerp(pts[k][1],pts[k+1][1],u)]; break; }
+      }
+      if (pos) dot(pos[0], pos[1], 6, col, B*(a>1.8 ? 1-(a-1.8)/.3 : 1));
+    }
+  }},
+
+/* ---------------- 7. Recap ---------------- */
+{ title:'Recap', dur:25,
+  caps:[[0,"Four things to remember."],
+        [2.5,"One. A model isn't an application until something can call it."],
+        [7.2,"Two. Training learns. Inference uses."],
+        [10,"Three. Confidence is not correctness. Plan for not sure, and for down."],
+        [15,"Four. Scale, caching, async and fallbacks all have costs. Name what each one protects against."],
+        [21.5,"Now open your Codespace, and build it."]],
+  draw(t){
+    txt('Four things to remember', 640, 110, {size:44, p:P(t,.2,1.5)});
+    const L = [["A model isn’t an application until something can call it.",2.6],
+               ["Training learns. Inference uses.",7.3],
+               ["Confidence is not correctness. Plan for “not sure” and “down”.",10.1],
+               ["Scale, caching, async, fallbacks: name what each protects against.",15.1]];
+    L.forEach(([s,t0],i)=>{
+      const y = 230+i*100;
+      txt(String(i+1), 170, y, {size:40, color:C.blue, alpha:P(t,t0,.6)});
+      txt(s, 230, y, {size:27, align:'left', p:P(t,t0+.2,1.6)});
+    });
+    txt('harbourside-ai-router  →  /docs', 640, 650, {size:22, font:MONO, color:C.yellow, alpha:P(t,21.6,1)});
+  }}
+];
+
+/* ======================================================================
+   PLAYER
+   ====================================================================== */
+const START = []; let TOTAL = 0;
+S.forEach(s=>{ START.push(TOTAL); TOTAL += s.dur; });
+let T = 0, playing = false, lastTs = null, voiceOn = false, capKey = null, started = false;
+
+const $ = id => document.getElementById(id);
+const capEl = $('cap'), fillEl = $('fill'), timeEl = $('time'), playBtn = $('play'), bigPlay = $('bigplay'), voiceBtn = $('voice');
+
+// chapter ticks + buttons
+S.forEach((s,i)=>{
+  if (i>0){ const tk=document.createElement('div'); tk.className='tick'; tk.style.left=(START[i]/TOTAL*100)+'%'; $('bar').appendChild(tk); }
+  const b=document.createElement('button'); b.textContent=`${i+1} · ${s.title}`;
+  b.onclick=()=>{ seek(START[i]+.001); if(!playing) setPlaying(true); };
+  $('chapters').appendChild(b);
+});
+const chapBtns = [...$('chapters').children];
+
+function locate(time){
+  for (let i=S.length-1;i>=0;i--) if (time >= START[i]) return {i, lt: Math.min(time-START[i], S[i].dur)};
+  return {i:0, lt:0};
+}
+const fmt = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+
+/* ---------- NARRATOR: every word is spoken before the video moves on ---------- */
+const SAY=[[/“|”|"/g,''],[/TF-IDF/g,'T F I D F'],[/\b2xx\b/g,'two hundreds'],[/\b4xx\b/g,'four hundreds'],[/\b5xx\b/g,'five hundreds'],
+  [/HUMAN_REVIEW/g,'human review'],[/\bFINANCE\b/g,'Finance'],[/\bESTATES\b/g,'Estates'],[/\bIT\b/g,'I T'],[/\bHR\b/g,'H R'],
+  [/\bCCIO\b/g,'C C I O'],[/(\d{2}):(\d{2})/g,(m,h,mi)=>`${+h} ${mi==='00'?"o'clock":mi}`],[/7f3a/g,'7 F 3 A'],[/\//g,' slash ']];
+const NAR={u:null,speaking:false,until:0,voice:null,list:[]};
+const HOLDS=[]; S.forEach((s,i)=>{ s.caps.forEach((c,k)=>{ if(k>0) HOLDS.push(START[i]+c[0]-.02); }); HOLDS.push(START[i]+s.dur-.6); }); HOLDS.sort((a,b)=>a-b);
+const vSel=document.createElement('select'); vSel.title='Narrator voice';
+vSel.style.cssText='background:#16161a;border:1px solid #2a2a30;color:#ddd;border-radius:8px;height:38px;padding:0 8px;font-family:inherit;font-size:13px;max-width:200px';
+voiceBtn.after(vSel);
+const vNorm=l=>(l||'').replace('_','-');
+const vRank=v=>{ const l=vNorm(v.lang); return /^en-GB/i.test(l)?0:/^en-US/i.test(l)?1:/^en/i.test(l)?2:9; };
+const vGood=v=>/natural|online|google|neural|premium|enhanced/i.test(v.name)?1:0;
+const vName=v=>v.name.replace(/^(Microsoft|Google|Apple) /,'').replace(/\s*-\s*English.*$/,'').slice(0,34);
+function pickVoices(){
+  if(!('speechSynthesis' in window)) return;
+  const vs=speechSynthesis.getVoices().filter(v=>vRank(v)<9).sort((a,b)=>vRank(a)-vRank(b)||vGood(b)-vGood(a));
+  if(!vs.length) return;
+  NAR.list=vs; vSel.innerHTML='';
+  const label={0:'🇬🇧 UK English',1:'🇺🇸 US English',2:'Other English'}; let g=null, og=null;
+  vs.forEach((v,i)=>{
+    const r=vRank(v);
+    if(r!==g){ g=r; og=document.createElement('optgroup'); og.label=label[r]; vSel.appendChild(og); }
+    const o=document.createElement('option'); o.value=i; o.textContent=vName(v)+' · '+vNorm(v.lang); og.appendChild(o);
+  });
+  if(!vs.some(v=>vRank(v)===0)){
+    const og2=document.createElement('optgroup'); og2.label='No UK voice on this device';
+    const o=document.createElement('option'); o.value='help'; o.textContent='➕ How to add a UK English voice'; og2.appendChild(o); vSel.appendChild(og2);
+  }
+  const cur=NAR.voice?vs.findIndex(v=>v.name===NAR.voice.name):-1, i=cur>=0?cur:0;
+  vSel.value=String(i); NAR.voice=vs[i];
+}
+if('speechSynthesis' in window){ speechSynthesis.onvoiceschanged=pickVoices; pickVoices(); [300,1200,3500].forEach(ms=>setTimeout(pickVoices,ms)); }
+else vSel.style.display='none';
+vSel.onchange=()=>{
+  if(vSel.value==='help'){
+    capEl.textContent='To add a UK voice — Windows: Settings → Time & language → Speech → Add voices → English (United Kingdom). Mac: System Settings → Accessibility → Spoken Content → System voice → Manage Voices → English (UK). Or open this page in Microsoft Edge or Google Chrome, which include free UK voices. Then reload the page.';
+    vSel.value=String(Math.max(0,NAR.list.indexOf(NAR.voice))); return;
+  }
+  NAR.voice=NAR.list[+vSel.value]; stopVoice(); capKey=null;
+};
+function speak(s){
+  if(!voiceOn||!playing||!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const text=SAY.reduce((a,[r,v])=>a.replace(r,v),s);
+  const u=new SpeechSynthesisUtterance(text);
+  if(NAR.voice){ u.voice=NAR.voice; u.lang=NAR.voice.lang; } else u.lang='en-GB';
+  u.rate=1;
+  NAR.u=u; NAR.speaking=true; NAR.until=performance.now()+(text.split(/\s+/).length/2+4)*1000;
+  u.onend=u.onerror=()=>{ if(NAR.u===u) NAR.speaking=false; };
+  setTimeout(()=>{ if(NAR.u===u) speechSynthesis.speak(u); },80);
+}
+function stopVoice(){ NAR.speaking=false; NAR.u=null; if('speechSynthesis' in window) speechSynthesis.cancel(); }
+function narrating(){ if(!NAR.speaking) return false; if(performance.now()>NAR.until){ NAR.speaking=false; return false; } return true; }
+
+function updateCaption(i, lt){
+  const caps = S[i].caps; let ci = 0;
+  caps.forEach((c,k)=>{ if (lt >= c[0]) ci = k; });
+  const key = i+'-'+ci;
+  if (key !== capKey){ capKey = key; capEl.textContent = caps[ci][1]; speak(caps[ci][1]); }
+}
+
+function render(){
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.globalAlpha = 1; ctx.fillStyle = '#000'; ctx.fillRect(0,0,W,H);
+  const {i, lt} = locate(T), s = S[i], last = i === S.length-1;
+  ctx.globalAlpha = Math.min(P(lt,0,.45), last ? 1 : 1-P(lt, s.dur-.55, .55));
+  s.draw(lt);
+  ctx.globalAlpha = 1;
+  txt(`${i+1} · ${s.title}`, 40, 38, {size:15, color:'#555', align:'left', font:MONO});
+  updateCaption(i, lt);
+  fillEl.style.width = (T/TOTAL*100)+'%';
+  timeEl.textContent = `${fmt(T)} / ${fmt(TOTAL)}`;
+  chapBtns.forEach((b,k)=> b.classList.toggle('active', k===i));
+}
+
+function setPlaying(v){
+  playing = v; playBtn.textContent = v ? '❚❚' : '▶';
+  if (v){ started = true; bigPlay.style.display='none'; if (T >= TOTAL) seek(0); capKey = null; }
+  else stopVoice();
+}
+function seek(time){ T = clamp(time, 0, TOTAL); capKey = null; stopVoice(); }
+
+function frame(ts){
+  if (playing){
+    let dt = lastTs != null ? Math.min((ts-lastTs)/1000, .1) : 0;
+    if (voiceOn && narrating()){ const h = HOLDS.find(x => x >= T-1e-6); if (h !== undefined && T+dt >= h) dt = Math.max(0, h-T); }
+    T += dt;
+    if (T >= TOTAL){ T = TOTAL; if (!(voiceOn && narrating())){ setPlaying(false); bigPlay.style.display='block'; bigPlay.textContent='↺'; } }
+  }
+  lastTs = ts; render(); requestAnimationFrame(frame);
+}
+
+playBtn.onclick = () => setPlaying(!playing);
+bigPlay.onclick = () => setPlaying(true);
+cv.onclick = () => setPlaying(!playing);
+$('restart').onclick = () => { seek(0); setPlaying(true); };
+voiceBtn.onclick = () => {
+  voiceOn = !voiceOn;
+  voiceBtn.textContent = voiceOn ? '🔊 Voice on' : '🔈 Voice off';
+  voiceBtn.classList.toggle('on', voiceOn);
+  if (!voiceOn) stopVoice(); else capKey = null;
+};
+$('bar').onclick = e => { const r = $('bar').getBoundingClientRect(); seek((e.clientX-r.left)/r.width*TOTAL); };
+document.addEventListener('keydown', e => {
+  if (['INPUT','SELECT'].includes(e.target.tagName)) return;
+  if (e.code==='Space'){ e.preventDefault(); setPlaying(!playing); }
+  if (e.code==='ArrowRight'){ const {i}=locate(T); if (i<S.length-1) seek(START[i+1]+.001); }
+  if (e.code==='ArrowLeft'){ const {i,lt}=locate(T); seek(START[lt<1.5 && i>0 ? i-1 : i]+.001); }
+});
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

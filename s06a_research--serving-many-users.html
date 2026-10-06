@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Serving many users at once · Research story</title>
+<meta name="video-id" content="s06a">
+<meta name="section" content="Research story">
+<style>
+  :root{--blue:#58C4DD;--yellow:#F7D96F;--grey:#8a8a8a}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0b0b0d;color:#e8e8e8;font-family:Georgia,'Times New Roman',serif;display:flex;justify-content:center;padding:24px 16px 40px;min-height:100vh}
+  .wrap{width:100%;max-width:1100px}
+  header{margin-bottom:16px;display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+  header h1{font-weight:normal;font-size:28px}
+  header h1 span{color:var(--blue)}
+  header p{color:var(--grey);font-style:italic;margin-top:4px;font-size:15px}
+  .ep{font-family:Consolas,monospace;font-size:12px;color:#666;border:1px solid #26262c;border-radius:999px;padding:4px 12px}
+  .stage{position:relative;background:#000;border-radius:12px;overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,.7),0 0 0 1px #1f1f24}
+  canvas{display:block;width:100%;height:auto;cursor:pointer}
+  #bigplay{position:absolute;inset:0;margin:auto;width:96px;height:96px;border-radius:50%;border:2px solid var(--blue);background:rgba(88,196,221,.08);color:var(--blue);font-size:36px;cursor:pointer;transition:transform .25s,background .25s;padding-left:6px}
+  #bigplay:hover{transform:scale(1.08);background:rgba(88,196,221,.18)}
+  .caption{min-height:70px;padding:16px 8px 6px;text-align:center;font-size:20px;line-height:1.45;color:#ddd}
+  .controls{display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap}
+  .controls button,.explore button{background:#16161a;border:1px solid #2a2a30;color:#ddd;border-radius:8px;height:38px;min-width:42px;padding:0 12px;font-size:15px;cursor:pointer;font-family:inherit;transition:border-color .2s,color .2s}
+  .controls button:hover,.explore button:hover{border-color:var(--blue);color:var(--blue)}
+  .controls button.on{border-color:var(--yellow);color:var(--yellow)}
+  .explore button.mode.on{background:var(--yellow);color:#000;border-color:var(--yellow)}
+  .bar{position:relative;flex:1;min-width:160px;height:8px;background:#1c1c22;border-radius:6px;cursor:pointer}
+  .fill{position:absolute;left:0;top:0;bottom:0;background:var(--blue);border-radius:6px;width:0}
+  .tick{position:absolute;top:-3px;width:2px;height:14px;background:#444}
+  #time{font-family:Consolas,monospace;font-size:13px;color:var(--grey);min-width:92px;text-align:right}
+  .explore{display:none;flex-wrap:wrap;align-items:center;gap:10px 16px;margin-top:14px;padding:14px 16px;border:1px solid #2c2c33;border-radius:10px;background:#111115;font-family:Consolas,monospace;font-size:13px;color:#bbb}
+  .explore.show{display:flex}
+  .explore label{display:flex;align-items:center;gap:8px}
+  .explore input[type=range]{width:130px;accent-color:#F7D96F}
+  .explore b{color:var(--yellow);font-weight:normal;min-width:30px;display:inline-block}
+  .chapters{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+  .chapters button{background:transparent;border:1px solid #26262c;color:#9a9a9a;border-radius:999px;padding:6px 14px;font-size:13px;cursor:pointer;font-family:Consolas,monospace;transition:all .2s}
+  .chapters button:hover{color:#fff;border-color:#555}
+  .chapters button.active{color:#000;background:var(--blue);border-color:var(--blue)}
+  .hint{color:#555;font-size:12px;margin-top:14px;font-family:Consolas,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Serving <span>many users</span> at once</h1>
+      <p>The vLLM research story: why GPU memory decides how many people an AI can serve</p>
+    </div>
+    <span class="ep" style="color:#F7D96F;border-color:#3a3a2a">Section: Research story</span>
+  </header>
+  <div class="stage">
+    <canvas id="cv" aria-label="Animated explainer"></canvas>
+    <button id="bigplay" aria-label="Play">▶</button>
+  </div>
+  <div class="caption" id="cap" aria-live="polite"></div>
+  <div class="controls">
+    <button id="play" aria-label="Play or pause">▶</button>
+    <button id="restart" aria-label="Restart">↺</button>
+    <div class="bar" id="bar"><div class="fill" id="fill"></div></div>
+    <span id="time">0:00 / 0:00</span>
+    <button id="voice">🔈 Voice off</button>
+    <button id="exploreBtn">🔍 Fill the GPU</button>
+  </div>
+  <div class="explore" id="explorePanel">
+    <span>memory method:</span>
+    <button class="mode on" data-m="old">Reserve the worst case</button>
+    <button class="mode" data-m="paged">Pages (vLLM)</button>
+    <label>new requests <input type="range" id="exRate" min="0.5" max="5" step="0.5" value="2"> <b id="exRateV">2.0</b>/s</label>
+    <button id="exReset">↺ Reset</button>
+  </div>
+  <div class="chapters" id="chapters"></div>
+  <div class="hint">Space = play/pause · ← → = chapters · paper: Kwon et al., “Efficient Memory Management for Large Language Model Serving with PagedAttention”, ACM SOSP 2023</div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const cv=$('cv'), ctx=cv.getContext('2d');
+const W=1280, H=720; let dpr=1;
+function resize(){ dpr=Math.min(window.devicePixelRatio||1,2); cv.width=W*dpr; cv.height=H*dpr; }
+resize(); addEventListener('resize', resize);
+
+const C={white:'#ECECEC',grey:'#7d7d7d',dim:'#444',blue:'#58C4DD',yellow:'#F7D96F',green:'#83C167',red:'#FC6255',teal:'#5CD0B3',purple:'#B189C6',orange:'#FF9A4D',pink:'#E07AAA'};
+const PAL=[C.blue,C.purple,C.orange,C.green,C.pink,C.teal,C.yellow,'#9DB4FF','#D9A066','#7FD8A5'];
+const SERIF='Georgia, "Times New Roman", serif', MONO='Consolas, "SFMono-Regular", "Liberation Mono", monospace';
+const clamp=(x,a=0,b=1)=>Math.max(a,Math.min(b,x));
+const smooth=x=>{x=clamp(x);return x*x*(3-2*x);};
+const P=(t,s,d)=>smooth((t-s)/d);
+const lerp=(a,b,p)=>a+(b-a)*p;
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;}}
+
+/* ---------- drawing helpers ---------- */
+const fontStr=(size,font,style)=>[style,size+'px',font].filter(Boolean).join(' ');
+function txt(s,x,y,o={}){
+  const {size=28,color=C.white,align='center',alpha=1,font=SERIF,style='',p=1}=o;
+  if(alpha<=0||p<=0) return;
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.font=fontStr(size,font,style); ctx.fillStyle=color; ctx.textAlign=align; ctx.textBaseline='middle';
+  if(p<1){ const w=ctx.measureText(s).width, x0=align==='center'?x-w/2:align==='right'?x-w:x; ctx.beginPath(); ctx.rect(x0-4,y-size,(w+8)*p,size*2); ctx.clip(); }
+  ctx.fillText(s,x,y); ctx.restore();
+}
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function box(x,y,w,h,o={}){
+  const {stroke=C.white,fill=null,alpha=1,lw=2,r=10,p=1,dash=null}=o; if(alpha<=0||p<=0) return;
+  ctx.save(); ctx.globalAlpha*=alpha; rr(x,y,w,h,r); if(fill){ctx.fillStyle=fill;ctx.fill();}
+  const L=2*(w+h); if(p<1) ctx.setLineDash([L*p,L]); else if(dash) ctx.setLineDash(dash);
+  ctx.strokeStyle=stroke; ctx.lineWidth=lw; ctx.stroke(); ctx.restore();
+}
+function rect(x,y,w,h,color,alpha=1){ if(alpha<=0||w<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.fillStyle=color; ctx.fillRect(x,y,w,h); ctx.restore(); }
+function seg(x1,y1,x2,y2,o={}){
+  const {color=C.white,lw=2,alpha=1,p=1,dash=null}=o; if(p<=0||alpha<=0) return;
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.lineCap='round'; if(dash) ctx.setLineDash(dash);
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(lerp(x1,x2,p),lerp(y1,y2,p)); ctx.stroke(); ctx.restore();
+}
+function arrow(x1,y1,x2,y2,o={}){
+  const {color=C.white,p=1,alpha=1,lw=2.2,head=10}=o; if(p<=0||alpha<=0) return;
+  seg(x1,y1,x2,y2,{color,lw,alpha,p});
+  const x=lerp(x1,x2,p), y=lerp(y1,y2,p), a=Math.atan2(y2-y1,x2-x1);
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.fillStyle=color; ctx.beginPath(); ctx.moveTo(x,y);
+  ctx.lineTo(x-head*Math.cos(a-.4),y-head*Math.sin(a-.4)); ctx.lineTo(x-head*Math.cos(a+.4),y-head*Math.sin(a+.4)); ctx.closePath(); ctx.fill(); ctx.restore();
+}
+function poly(pts,o={}){ const {color=C.white,lw=2.5,alpha=1}=o; if(alpha<=0||pts.length<2) return;
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.lineJoin='round'; ctx.beginPath(); pts.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y)); ctx.stroke(); ctx.restore(); }
+function tag(x,y,s,col,a,size=14){ if(a<=0) return; ctx.save(); ctx.font=fontStr(size,MONO,''); const w=ctx.measureText(s).width+20; ctx.restore();
+  box(x-w/2,y-size,w,size*2,{stroke:col,fill:'rgba(0,0,0,.92)',alpha:a,r:6}); txt(s,x,y,{size,font:MONO,color:col,alpha:a}); }
+
+/* ---------- memory grid ----------
+   cellFn(i) -> null (free) | {col, fill:0..1 (how full with notes), reserved:true (empty but reserved), mark:colour} */
+function grid(x0,y0,cols,rows,cs,cellFn,a=1){
+  if(a<=0) return;
+  for(let i=0;i<cols*rows;i++){
+    const x=x0+(i%cols)*cs, y=y0+Math.floor(i/cols)*cs, c=cellFn(i);
+    rect(x+1,y+1,cs-2,cs-2,'#15151a',a);
+    if(!c) continue;
+    if(c.mark){ box(x+1,y+1,cs-2,cs-2,{stroke:c.mark,lw:2,alpha:a,r:2}); continue; }
+    rect(x+1,y+1,cs-2,cs-2,c.col,a*.16);
+    if(c.fill>0) rect(x+1,y+1,(cs-2)*clamp(c.fill),cs-2,c.col,a*.9);
+    if(c.reserved&&!(c.fill>0)) seg(x+4,y+cs-4,x+cs-4,y+4,{color:c.col,lw:1.2,alpha:a*.55});
+  }
+}
+function legend(x,y,a){
+  rect(x,y-7,14,14,C.blue,.9*a); txt('notes in use',x+22,y,{size:14,align:'left',alpha:a});
+  rect(x+150,y-7,14,14,C.blue,.16*a); seg(x+152,y+5,x+162,y-5,{color:C.blue,lw:1.2,alpha:.55*a}); txt('reserved but empty',x+172,y,{size:14,align:'left',alpha:a});
+  rect(x+350,y-7,14,14,'#15151a',a); box(x+350,y-7,14,14,{stroke:'#333',lw:1,alpha:a,r:2}); txt('free',x+372,y,{size:14,align:'left',alpha:a});
+}
+
+/* ---------- fixed layouts for the video ---------- */
+const OLD=[{n:'A',s:0,len:64,use:18,col:C.blue,t0:1},{n:'B',s:72,len:64,use:30,col:C.purple,t0:2.2},{n:'C',s:144,len:64,use:12,col:C.orange,t0:3.4}];
+const PERM=(()=>{ const r=mulberry32(11), a=[...Array(256).keys()]; for(let i=255;i>0;i--){ const j=Math.floor(r()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; })();
+const PAGED=[{n:'A',use:18,col:C.blue,last:.5},{n:'B',use:30,col:C.purple,last:.75},{n:'C',use:12,col:C.orange,last:.3},{n:'D',use:20,col:C.green,last:.6}];
+const PAGE_ORDER=(()=>{ const out=[], left=PAGED.map(r=>r.use), idx=PAGED.map(()=>0); let k=0;
+  while(left.some(v=>v>0)){ for(let r=0;r<4;r++) if(left[r]>0){ out.push({r,page:idx[r]++,cell:PERM[k++]}); left[r]--; } } return out; })();
+
+/* ======================================================================
+   SCENES
+   ====================================================================== */
+const S=[
+/* 1 ─ Swap in a big model */
+{title:'Swap in a big model',dur:27,
+ caps:[[0,"Our router model is small. It answers in a blink and needs almost no memory."],
+       [5.5,"Now imagine swapping it for a large language model, one that writes its answer word by word on a GPU."],
+       [12.5,"For every request, the GPU keeps working memory: notes about every word so far. And it grows with every new word."],
+       [20,"Memory on a GPU is expensive and limited. So how we use it decides how many users we can serve."]],
+ draw(t){
+   txt('SECTION · RESEARCH STORY',640,100,{size:15,font:MONO,color:C.yellow,alpha:P(t,.2,.8)*(1-P(t,5,.6))});
+   const a1=P(t,.3,.8);
+   box(90,170,300,170,{stroke:C.teal,alpha:a1}); txt('our router',240,215,{size:24,alpha:a1});
+   txt('TF-IDF + logistic regression',240,255,{size:14,font:MONO,color:C.grey,alpha:a1});
+   txt('answers in milliseconds',240,295,{size:16,style:'italic',color:C.teal,alpha:a1});
+   const a2=P(t,5.6,.8);
+   box(490,140,700,240,{stroke:C.purple,lw:2.5,alpha:a2}); txt('a large language model on a GPU',840,172,{size:22,color:C.purple,alpha:a2});
+   const words=['Your','overtime','claim','was','received','and','is','being','checked','by','Finance','…'];
+   const n=Math.floor(clamp((t-7)/0.45,0,words.length));
+   let x=520; words.slice(0,n).forEach(w=>{ txt(w,x,225,{size:18,align:'left',alpha:a2}); ctx.save(); ctx.font=fontStr(18,SERIF,''); x+=ctx.measureText(w+' ').width; ctx.restore(); });
+   txt('writes word by word',840,265,{size:15,style:'italic',color:C.grey,alpha:P(t,8,.6)});
+   const m=P(t,12.6,.8);
+   txt('working memory for this request',520,312,{size:14,font:MONO,color:C.grey,align:'left',alpha:m});
+   for(let i=0;i<Math.min(n,12);i++) rect(520+i*52,330,46,30,C.purple,m*.85);
+   txt('+1 note per word',1180,345,{size:13,font:MONO,color:C.purple,align:'right',alpha:P(t,14,.6)});
+   const g=P(t,20.1,.8);
+   box(240,450,800,150,{stroke:C.yellow,alpha:g,fill:'rgba(8,8,11,.9)'});
+   txt('GPU memory: expensive and limited',640,490,{size:24,color:C.yellow,alpha:g});
+   txt('how we use it decides how many users we can serve at once',640,535,{size:18,style:'italic',alpha:P(t,21.5,.6)});
+ }},
+
+/* 2 ─ The old way */
+{title:'The old way: reserve for the worst case',dur:35,
+ caps:[[0,"Existing systems handled this the simple way. You don't know how long an answer will be, so you reserve space for the longest possible one."],
+       [8.5,"And it must be one continuous block of memory."],
+       [11.5,"Most answers are much shorter. So most of each reserved block sits empty."],
+       [16.5,"Between blocks, there are small gaps that are too small for anyone to use."],
+       [21.5,"The authors measured it: 60 to 80 percent of this memory was wasted."],
+       [27,"A new request arrives. There is enough free memory in total, but no single gap is big enough. It has to wait."]],
+ draw(t){
+   const a=P(t,.2,.6), fillP=P(t,11.6,4), gapOn=t>=16.5;
+   txt('GPU memory for working notes',640,135,{size:16,font:MONO,color:C.grey,alpha:a});
+   grid(192,160,32,8,28,i=>{
+     for(const r of OLD){ if(i>=r.s&&i<r.s+r.len){ const k=i-r.s; if(k>=r.len*P(t,r.t0,1.4)) return null;
+       return {col:r.col,fill:k<Math.round(r.use*fillP)?1:0,reserved:true}; } }
+     if(gapOn&&((i>=64&&i<72)||(i>=136&&i<144))) return {mark:C.orange};
+     return null; },a);
+   OLD.forEach(r=>{ const x=192+(r.s%32)*28, y=160+Math.floor(r.s/32)*28; txt(r.n,x+14,y+14,{size:14,font:MONO,color:'#000',alpha:P(t,r.t0,.4)}); });
+   legend(330,405,P(t,12,.6));
+   tag(640,455,'one piece · sized for the longest possible answer',C.white,P(t,8.6,.5)*(1-P(t,16.2,.4)),14);
+   txt('small gaps: too small to use',640,455,{size:17,color:C.orange,alpha:P(t,16.6,.5)*(1-P(t,21.2,.4))});
+   txt('60–80%',640,505,{size:56,font:MONO,color:C.red,alpha:P(t,21.6,.6)});
+   txt('of this memory wasted (the authors’ measurements)',640,553,{size:17,style:'italic',alpha:P(t,22.4,.6)});
+   const d=P(t,27.2,.6);
+   box(190,590,900,90,{stroke:C.green,alpha:d,fill:'rgba(8,8,11,.92)'});
+   txt('Request D needs 64 slots in one piece',640,615,{size:18,color:C.green,alpha:d});
+   txt('free in total: 64 slots · biggest gap: 48  →  ✗ D must wait',640,650,{size:16,font:MONO,color:C.red,alpha:P(t,29,.6)});
+ }},
+
+/* 3 ─ Pages */
+{title:'The idea: pages',dur:30,
+ caps:[[0,"The vLLM researchers borrowed an idea from operating systems: paging."],
+       [4.5,"Cut the memory into small, equal pages. Each page holds the notes for a few words."],
+       [10,"A request takes one page at a time, only when it needs one. The pages don't have to sit next to each other."],
+       [18,"A small table remembers where each page is, just like an operating system does for computer memory."],
+       [24.5,"Now the only waste is the unused part of each request's last page."]],
+ draw(t){
+   const a=P(t,.2,.6);
+   txt('the same GPU memory, cut into equal pages',640,135,{size:16,font:MONO,color:C.grey,alpha:a});
+   const shown=new Map(); PAGE_ORDER.forEach((p,j)=>{ if(t>=10.4+j*.09) shown.set(p.cell,p); });
+   const lastHi=t>=24.5;
+   grid(192,160,32,8,28,i=>{ const p=shown.get(i); if(!p) return null; const r=PAGED[p.r], isLast=p.page===r.use-1;
+     return {col:r.col,fill:isLast&&lastHi?r.last:1}; },a);
+   tag(640,430,'1 page = notes for a few words (16 in vLLM)',C.white,P(t,4.6,.5)*(1-P(t,9.8,.4)),14);
+   const ta=P(t,18.1,.6);
+   box(192,420,896,150,{stroke:'#33333b',alpha:ta,fill:'rgba(8,8,11,.92)'});
+   txt('page table',210,442,{size:14,font:MONO,color:C.grey,align:'left',alpha:ta});
+   PAGED.forEach((r,ri)=>{ const cells=PAGE_ORDER.filter(p=>p.r===ri).slice(0,7).map(p=>p.cell);
+     txt(`${r.n}  →  ${cells.join(', ')}, …`,210,470+ri*26,{size:14,font:MONO,color:r.col,align:'left',alpha:ta}); });
+   txt('only waste: part of each last page',640,610,{size:20,color:C.yellow,alpha:P(t,24.7,.6)});
+   txt('and request D fits now',640,645,{size:17,style:'italic',color:C.green,alpha:P(t,26,.6)});
+ }},
+
+/* 4 ─ Sharing */
+{title:'Sharing pages',dur:21,
+ caps:[[0,"Pages bring a second trick: sharing."],
+       [3,"Ask for three different replies to the same message. The message's notes are identical for all three."],
+       [9.5,"So they share the same pages, instead of storing three copies."],
+       [14,"A page is copied only when one reply starts to differ. Operating systems call this copy on write."]],
+ draw(t){
+   const a=P(t,.2,.6);
+   txt('the message (shared)',640,150,{size:16,font:MONO,color:C.teal,alpha:a});
+   const px=i=>440+i*104;
+   for(let i=0;i<4;i++){ const part=i===3?.5:1; box(px(i),170,90,60,{stroke:C.teal,alpha:a,r:6}); rect(px(i)+2,172,86*part,56,C.teal,a*.75); }
+   const replies=[[C.blue,'reply 1'],[C.purple,'reply 2'],[C.orange,'reply 3']];
+   const cow=P(t,14.4,1.2);
+   replies.forEach(([col,l],r)=>{ const y=370+r*90, ra=P(t,3.2+r*.4,.5);
+     txt(l,330,y,{size:16,font:MONO,color:col,align:'right',alpha:ra});
+     for(let k=0;k<3;k++){ box(380+k*80,y-24,64,48,{stroke:col,alpha:ra,r:6}); rect(382+k*80,y-22,60*(k<2?1:.4),44,col,ra*.7); }
+     const sa=P(t,9.6+r*.3,.6);
+     for(let i=0;i<4;i++){ const toCopy=r===1&&i===3&&cow>0; if(toCopy) continue; seg(px(i)+45,232,620+r*40,y-28,{color:col,lw:1.2,alpha:sa*.6,dash:[4,4]}); }
+     txt('×3 copies?  no → shared',1000,450,{size:18,color:C.green,alpha:P(t,10,.6)*(1-P(t,14,.4))});
+   });
+   if(cow>0){ const x=lerp(px(3),900,cow), y=lerp(170,440,cow);
+     box(x,y,90,60,{stroke:C.purple,lw:2.5,alpha:cow,r:6}); rect(x+2,y+2,86*.5,56,C.teal,cow*.75); rect(x+45,y+2,30,56,C.purple,cow*.85);
+     seg(660,428,x,y+30,{color:C.purple,lw:1.5,alpha:cow*.7});
+     txt('copied only when reply 2 differs',1000,540,{size:16,color:C.purple,alpha:P(t,15.6,.6)});
+     tag(1000,590,'copy on write',C.yellow,P(t,16.4,.5),15); }
+ }},
+
+/* 5 ─ The result */
+{title:'The result',dur:25,
+ caps:[[0,"Put the two side by side, on the same GPU."],
+       [3.5,"The old way fits only a few requests at once. Paging packs in many more."],
+       [9,"More requests at once means more answers per second. The paper reports two to four times the throughput of the systems it compared, at similar latency."],
+       [19.5,"Same hardware. No change to the model. Just better memory management."]],
+ draw(t){
+   const a=P(t,.2,.6);
+   txt('reserve for the worst case',316,150,{size:18,color:C.red,alpha:a});
+   txt('pages (vLLM)',964,150,{size:18,color:C.green,alpha:a});
+   const f=P(t,3.6,4);
+   const oldR=[[0,80,25],[80,80,18],[160,80,30]];
+   grid(100,170,24,10,18,i=>{ for(let r=0;r<3;r++){ const [s,l,u]=oldR[r]; if(i>=s&&i<s+l){ const k=i-s; if(k>=l*f) return null; return {col:PAL[r],fill:k<u?1:0,reserved:true}; } } return null; },a);
+   const sizes=[25,18,30,22,15,28,20,17,24,19], perm=(()=>{ const r=mulberry32(4), q=[...Array(240).keys()]; for(let i=239;i>0;i--){ const j=Math.floor(r()*(i+1)); [q[i],q[j]]=[q[j],q[i]]; } return q; })();
+   const own=new Map(); let k=0; sizes.forEach((s,r)=>{ for(let j=0;j<s;j++) own.set(perm[k++],r); });
+   const limit=Math.floor(218*f);
+   const order=[...own.keys()].slice(0,limit); const vis=new Set(order);
+   grid(748,170,24,10,18,i=>vis.has(i)?{col:PAL[own.get(i)],fill:1}:null,a);
+   txt(`${f>.95?3:Math.round(3*f)} requests at once`,316,375,{size:22,font:MONO,color:C.red,alpha:P(t,4,.6)});
+   txt(`${f>.95?10:Math.round(10*f)} requests at once`,964,375,{size:22,font:MONO,color:C.green,alpha:P(t,4,.6)});
+   const b=P(t,9.2,.8);
+   txt('answers per second (same GPU)',640,440,{size:16,font:MONO,color:C.grey,alpha:b});
+   rect(340,465,150*b,40,C.red,.8); txt('1×',340+150*b+12,485,{size:18,font:MONO,align:'left',alpha:b});
+   rect(340,525,300*b,40,C.green,.8); rect(340+300*b,525,300*b,40,C.green,.28);
+   txt('2–4×',340+600*b+12,545,{size:18,font:MONO,color:C.green,align:'left',alpha:b});
+   txt('(compared with the systems in the paper, at similar latency)',640,595,{size:14,style:'italic',color:C.grey,alpha:P(t,12,.6)});
+   txt('same hardware · same model · better memory management',640,655,{size:22,color:C.yellow,p:P(t,19.7,1.6)});
+   txt('illustrative layout',1250,700,{size:13,color:'#4a4a4a',align:'right',font:MONO});
+ }},
+
+/* 6 ─ Operations lens */
+{title:'Through an operations lens',dur:36,
+ caps:[[0,"Why should each of you care? Here it is through four roles."],
+       [5,"Finance: more requests per GPU means less hardware for the same demand, and potentially lower running cost."],
+       [12,"QA: many users at once create failures you never see with one tester. So test under load."],
+       [18.5,"HR: when AI faces employees, speed and reliability decide whether staff trust it and use it."],
+       [25,"Tech: memory, throughput and latency are design decisions, not afterthoughts."],
+       [29.5,"A question for you: which of these would you put in front of Harbourside's Finance Director?"]],
+ draw(t){
+   txt('Why each of you should care',640,95,{size:34,p:P(t,.2,1.4)});
+   const cards=[['FINANCE','£',['more requests per GPU','less hardware, same demand','potentially lower cost'],C.yellow,5.1],
+                ['QA','🧪',['many users at once','failures one tester never sees','→ load testing'],C.orange,12.1],
+                ['HR','👥',['employee-facing AI','speed and reliability','decide trust and use'],C.purple,18.6],
+                ['TECH','⚙',['memory · throughput · latency','are design decisions,','not afterthoughts'],C.teal,25.1]];
+   cards.forEach(([h,ic,lines,col,s],i)=>{ const x=70+i*290, a=P(t,s,.6);
+     box(x,160,260,300,{stroke:col,alpha:a,fill:'rgba(8,8,11,.9)'});
+     txt(h,x+130,195,{size:20,font:MONO,color:col,alpha:a}); txt(ic,x+130,260,{size:44,color:col,alpha:a});
+     lines.forEach((l,j)=>txt(l,x+130,330+j*30,{size:15,alpha:a})); });
+   const q=P(t,29.6,.6);
+   box(190,520,900,110,{stroke:C.yellow,alpha:q,fill:'rgba(8,8,11,.92)'});
+   txt('Which would you put in front of',640,555,{size:24,color:C.yellow,alpha:q});
+   txt('Harbourside’s Finance Director?',640,592,{size:24,color:C.yellow,alpha:q});
+ }},
+
+/* 7 ─ Two research stories */
+{title:'Two research stories',dur:24,
+ caps:[[0,"Another research system, ServerlessLLM, asked: how do we start a huge model quickly from cold?"],
+       [6.5,"vLLM asks the next question: once a model is running, how do we serve many users at once?"],
+       [12.5,"In queueing terms, vLLM raises each copy's capacity, so the queue starts to grow later."],
+       [18.5,"Note: this is general AI infrastructure research, not a hospital deployment. Test before you trust."]],
+ draw(t){
+   const a1=P(t,.3,.6), a2=P(t,6.6,.6);
+   box(100,120,500,170,{stroke:C.blue,alpha:a1}); txt('COLD START · ServerlessLLM',350,155,{size:17,font:MONO,color:C.blue,alpha:a1});
+   txt('How do we start a huge model',350,205,{size:20,alpha:a1}); txt('quickly from cold?',350,235,{size:20,alpha:a1});
+   box(680,120,500,170,{stroke:C.green,alpha:a2}); txt('MANY USERS · vLLM',930,155,{size:17,font:MONO,color:C.green,alpha:a2});
+   txt('How do we serve many users',930,205,{size:20,alpha:a2}); txt('at once on the same hardware?',930,235,{size:20,alpha:a2});
+   const c=P(t,12.6,.8), X=v=>lerp(340,940,v/10), Y=w=>lerp(620,350,w/14);
+   seg(340,620,950,620,{color:C.grey,lw:1.5,alpha:c}); seg(340,620,340,340,{color:C.grey,lw:1.5,alpha:c});
+   txt('requests arriving →',940,645,{size:13,font:MONO,color:C.grey,align:'right',alpha:c}); txt('waiting time',350,335,{size:13,font:MONO,color:C.grey,align:'left',alpha:c});
+   const curve=cap=>{ const p=[]; for(let i=0;i<=200;i++){ const v=cap*.97*i/200, w=1/(1-v/cap); if(Y(w)<345) break; p.push([X(v),Y(w)]); } return p; };
+   poly(curve(3),{color:C.red,lw:3,alpha:c}); poly(curve(8),{color:C.green,lw:3,alpha:P(t,14,.8)});
+   txt('old way',X(3)-10,370,{size:14,font:MONO,color:C.red,align:'right',alpha:c}); txt('vLLM',X(8)-10,370,{size:14,font:MONO,color:C.green,align:'right',alpha:P(t,14,.8)});
+   tag(640,680,'general AI infrastructure research · not a clinical deployment',C.orange,P(t,18.7,.6),14);
+ }},
+
+/* 8 ─ Recap */
+{title:'Recap',dur:27,
+ caps:[[0,"Let's put it together."],
+       [2,"One. Each request needs working memory on the GPU, and it grows word by word."],
+       [7.5,"Two. Reserving for the worst case wasted 60 to 80 percent of it."],
+       [12,"Three. Paging hands out small pages only when needed, and lets requests share them."],
+       [17.5,"Four. The result: two to four times more answers per second, on the same hardware."],
+       [23,"Go deeper: why queues explode when capacity runs out, and what changes when a model moves to the cloud."]],
+ draw(t){
+   txt('Serving many users at once',640,105,{size:44,p:P(t,.2,1.5)});
+   const L=[["Each request needs GPU working memory, growing word by word.",2.1],["Reserving for the worst case wasted 60–80% of it.",7.6],
+            ["Pages: handed out only when needed, and shared.",12.1],["Result: 2–4× more answers per second, same hardware.",17.6]];
+   L.forEach(([s,t0],i)=>{ const y=225+i*95;
+     txt(String(i+1),150,y,{size:40,color:C.blue,alpha:P(t,t0,.6)});
+     txt(s,205,y,{size:25,align:'left',p:P(t,t0+.2,1.6)}); });
+   txt('Go deeper',640,622,{size:16,font:MONO,color:C.grey,alpha:P(t,23.2,1)});
+   txt('Monday, 09:00 · Same code, new home · How sure is sure?',640,655,{size:18,font:MONO,color:C.yellow,alpha:P(t,23.8,1)});
+ }}
+];
+
+/* ======================================================================
+   EXPLORE: fill the GPU (live)
+   ====================================================================== */
+const GC=64, GR=16, NC=GC*GR, PG=16, RES=128, SPEED=60;
+let LAB;
+function labReset(mode){ LAB={mode:mode||(LAB?LAB.mode:'old'),reqs:[],wait:[],cells:new Int32Array(NC).fill(-1),t:0,next:0,id:0,log:[],done:0,rng:mulberry32(5)}; }
+labReset('old');
+function freeCells(){ const f=[]; for(let i=0;i<NC;i++) if(LAB.cells[i]<0) f.push(i); return f; }
+function takeRandom(f,id){ const j=Math.floor(LAB.rng()*f.length), c=f[j]; f[j]=f[f.length-1]; f.pop(); LAB.cells[c]=id; return c; }
+function admit(r){
+  if(LAB.mode==='old'){ let run=0; for(let i=0;i<NC;i++){ run=LAB.cells[i]<0?run+1:0; if(run===RES){ const b=i-RES+1; for(let k=b;k<=i;k++) LAB.cells[k]=r.id; r.base=b; r.gen=r.prompt; return true; } } return false; }
+  const need=Math.ceil(r.prompt/PG), f=freeCells(); if(f.length<need) return false;
+  r.pages=[]; for(let k=0;k<need;k++) r.pages.push(takeRandom(f,r.id)); r.gen=r.prompt; return true;
+}
+function labStep(dt){
+  const L=LAB, rate=parseFloat($('exRate').value); L.t+=dt;
+  while(L.next<=L.t){ const prompt=32+Math.floor(L.rng()*128), out=64+Math.floor(-Math.log(1-L.rng())*220);
+    L.wait.push({id:L.id++,prompt,len:Math.min(2000,prompt+out),gen:0,col:PAL[L.id%PAL.length]}); L.next+=-Math.log(1-L.rng())/rate; }
+  while(L.wait.length&&admit(L.wait[0])) L.reqs.push(L.wait.shift());
+  let f=L.mode==='paged'?freeCells():null, made=0;
+  for(const r of L.reqs){
+    let g=Math.min(r.len,r.gen+SPEED*dt);
+    if(L.mode==='paged'){ const need=Math.ceil(g/PG); while(r.pages.length<need&&f.length) r.pages.push(takeRandom(f,r.id)); if(r.pages.length<need){ r.stalled=true; continue; } r.stalled=false; }
+    made+=g-r.gen; r.gen=g;
+  }
+  L.log.push([L.t,made]); while(L.log.length&&L.log[0][0]<L.t-5) L.log.shift();
+  L.reqs=L.reqs.filter(r=>{ if(r.gen<r.len) return true;
+    if(L.mode==='old') for(let k=r.base;k<r.base+RES;k++) L.cells[k]=-1; else r.pages.forEach(c=>L.cells[c]=-1);
+    L.done++; return false; });
+  if(L.wait.length>60) L.wait.splice(0,L.wait.length-60);
+}
+function renderExplore(dt){
+  labStep(Math.min(dt,.1)); const L=LAB;
+  txt(`FILL THE GPU · ${L.mode==='old'?'reserve the worst case':'pages (vLLM)'}`,40,30,{size:14,font:MONO,color:C.yellow,align:'left'});
+  const info=new Map();
+  for(const r of L.reqs){
+    if(L.mode==='old'){ for(let k=0;k<RES;k++){ const used=k*PG<r.gen; info.set(r.base+k,{col:r.col,fill:used?clamp((r.gen-k*PG)/PG):0,reserved:true}); } }
+    else r.pages.forEach((c,k)=>info.set(c,{col:r.col,fill:clamp((r.gen-k*PG)/PG)}));
+  }
+  grid(160,70,GC,GR,15,i=>info.get(i)||null,1);
+  legend(330,335,1);
+  let alloc=0; for(let i=0;i<NC;i++) if(L.cells[i]>=0) alloc++;
+  const notes=L.reqs.reduce((s,r)=>s+r.gen,0), usedPct=notes/(NC*PG)*100, allocPct=alloc/NC*100;
+  const tps=L.log.reduce((s,[,v])=>s+v,0)/5;
+  box(160,370,960,150,{stroke:'#2c2c33',fill:'rgba(8,8,11,.9)'});
+  const st=[['running now',String(L.reqs.length),C.green],['waiting',String(L.wait.length),L.wait.length>5?C.red:C.white],
+            ['memory holding notes',usedPct.toFixed(0)+'%',C.blue],['reserved but empty',Math.max(0,allocPct-usedPct).toFixed(0)+'%',C.orange],['words / second',tps.toFixed(0),C.yellow]];
+  st.forEach(([l,v,col],i)=>{ const x=256+i*192; txt(l,x,405,{size:14,style:'italic',color:C.grey}); txt(v,x,455,{size:30,font:MONO,color:col}); });
+  for(let i=0;i<Math.min(L.wait.length,40);i++) rect(160+i*24,545,18,18,L.wait[i].col,.8);
+  txt(L.wait.length?'waiting requests':'no one waiting',160,580,{size:13,font:MONO,color:C.grey,align:'left'});
+  txt('Switch between the two methods with the same arrival rate. Compare “running now”, “waiting” and “words / second”.',640,640,{size:16,style:'italic',color:C.grey});
+  txt('each square = one page of notes (16 words) · a simple model of the idea, not the real system',640,672,{size:13,font:MONO,color:'#555'});
+}
+
+/* ======================================================================
+   PLAYER
+   ====================================================================== */
+const START=[]; let TOTAL=0; S.forEach(s=>{START.push(TOTAL); TOTAL+=s.dur;});
+let T=0, playing=false, lastTs=null, voiceOn=false, capKey=null, explore=false, frameDt=0;
+const capEl=$('cap'), fillEl=$('fill'), timeEl=$('time'), playBtn=$('play'), bigPlay=$('bigplay'), voiceBtn=$('voice'), exBtn=$('exploreBtn');
+S.forEach((s,i)=>{
+  if(i>0){ const tk=document.createElement('div'); tk.className='tick'; tk.style.left=(START[i]/TOTAL*100)+'%'; $('bar').appendChild(tk); }
+  const b=document.createElement('button'); b.textContent=`${i+1} · ${s.title}`;
+  b.onclick=()=>{ setExplore(false); seek(START[i]+.001); if(!playing) setPlaying(true); };
+  $('chapters').appendChild(b);
+});
+const chapBtns=[...$('chapters').children];
+const locate=time=>{ for(let i=S.length-1;i>=0;i--) if(time>=START[i]) return {i,lt:Math.min(time-START[i],S[i].dur)}; return {i:0,lt:0}; };
+const fmt=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+
+/* ---------- NARRATOR: every word is spoken before the video moves on ---------- */
+const SAY=[[/“|”|"/g,''],[/ServerlessLLM/g,'Serverless L L M'],[/vLLM/g,'V L L M'],[/\bGPU\b/g,'G P U'],[/\bQA\b/g,'Q A'],[/\bHR\b/g,'H R'],
+  [/TF-IDF/g,'T F I D F'],[/(\d{2}):(\d{2})/g,(m,h,mi)=>`${+h} ${mi==='00'?"o'clock":mi}`],[/\//g,' slash ']];
+const NAR={u:null,speaking:false,until:0,voice:null,list:[]};
+const HOLDS=[]; S.forEach((s,i)=>{ s.caps.forEach((c,k)=>{ if(k>0) HOLDS.push(START[i]+c[0]-.02); }); HOLDS.push(START[i]+s.dur-.6); }); HOLDS.sort((a,b)=>a-b);
+const vSel=document.createElement('select'); vSel.title='Narrator voice';
+vSel.style.cssText='background:#16161a;border:1px solid #2a2a30;color:#ddd;border-radius:8px;height:38px;padding:0 8px;font-family:inherit;font-size:13px;max-width:200px';
+voiceBtn.after(vSel);
+const vNorm=l=>(l||'').replace('_','-');
+const vRank=v=>{ const l=vNorm(v.lang); return /^en-GB/i.test(l)?0:/^en-US/i.test(l)?1:/^en/i.test(l)?2:9; };
+const vGood=v=>/natural|online|google|neural|premium|enhanced/i.test(v.name)?1:0;
+const vName=v=>v.name.replace(/^(Microsoft|Google|Apple) /,'').replace(/\s*-\s*English.*$/,'').slice(0,34);
+function pickVoices(){
+  if(!('speechSynthesis' in window)) return;
+  const vs=speechSynthesis.getVoices().filter(v=>vRank(v)<9).sort((a,b)=>vRank(a)-vRank(b)||vGood(b)-vGood(a));
+  if(!vs.length) return;
+  NAR.list=vs; vSel.innerHTML='';
+  const label={0:'🇬🇧 UK English',1:'🇺🇸 US English',2:'Other English'}; let g=null, og=null;
+  vs.forEach((v,i)=>{
+    const r=vRank(v);
+    if(r!==g){ g=r; og=document.createElement('optgroup'); og.label=label[r]; vSel.appendChild(og); }
+    const o=document.createElement('option'); o.value=i; o.textContent=vName(v)+' · '+vNorm(v.lang); og.appendChild(o);
+  });
+  if(!vs.some(v=>vRank(v)===0)){
+    const og2=document.createElement('optgroup'); og2.label='No UK voice on this device';
+    const o=document.createElement('option'); o.value='help'; o.textContent='➕ How to add a UK English voice'; og2.appendChild(o); vSel.appendChild(og2);
+  }
+  const cur=NAR.voice?vs.findIndex(v=>v.name===NAR.voice.name):-1, i=cur>=0?cur:0;
+  vSel.value=String(i); NAR.voice=vs[i];
+}
+if('speechSynthesis' in window){ speechSynthesis.onvoiceschanged=pickVoices; pickVoices(); [300,1200,3500].forEach(ms=>setTimeout(pickVoices,ms)); }
+else vSel.style.display='none';
+vSel.onchange=()=>{
+  if(vSel.value==='help'){
+    capEl.textContent='To add a UK voice — Windows: Settings → Time & language → Speech → Add voices → English (United Kingdom). Mac: System Settings → Accessibility → Spoken Content → System voice → Manage Voices → English (UK). Or open this page in Microsoft Edge or Google Chrome, which include free UK voices. Then reload the page.';
+    vSel.value=String(Math.max(0,NAR.list.indexOf(NAR.voice))); return;
+  }
+  NAR.voice=NAR.list[+vSel.value]; stopVoice(); capKey=null;
+};
+function speak(s){
+  if(!voiceOn||!playing||!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const text=SAY.reduce((a,[r,v])=>a.replace(r,v),s);
+  const u=new SpeechSynthesisUtterance(text);
+  if(NAR.voice){ u.voice=NAR.voice; u.lang=NAR.voice.lang; } else u.lang='en-GB';
+  u.rate=1;
+  NAR.u=u; NAR.speaking=true; NAR.until=performance.now()+(text.split(/\s+/).length/2+4)*1000;
+  u.onend=u.onerror=()=>{ if(NAR.u===u) NAR.speaking=false; };
+  setTimeout(()=>{ if(NAR.u===u) speechSynthesis.speak(u); },80);
+}
+function stopVoice(){ NAR.speaking=false; NAR.u=null; if('speechSynthesis' in window) speechSynthesis.cancel(); }
+function narrating(){ if(!NAR.speaking) return false; if(performance.now()>NAR.until){ NAR.speaking=false; return false; } return true; }
+
+function updateCaption(i,lt){
+  const caps=S[i].caps; let ci=0; caps.forEach((c,k)=>{ if(lt>=c[0]) ci=k; });
+  const key=i+'-'+ci; if(key!==capKey){ capKey=key; capEl.textContent=caps[ci][1]; speak(caps[ci][1]); }
+}
+function render(){
+  ctx.setTransform(dpr,0,0,dpr,0,0); ctx.globalAlpha=1; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+  if(explore){ renderExplore(frameDt); return; }
+  const {i,lt}=locate(T), s=S[i], last=i===S.length-1;
+  ctx.globalAlpha=Math.min(P(lt,0,.45), last?1:1-P(lt,s.dur-.55,.55));
+  s.draw(lt); ctx.globalAlpha=1;
+  txt(`${i+1} · ${s.title}`,40,38,{size:15,color:'#555',align:'left',font:MONO});
+  updateCaption(i,lt);
+  fillEl.style.width=(T/TOTAL*100)+'%'; timeEl.textContent=`${fmt(T)} / ${fmt(TOTAL)}`;
+  chapBtns.forEach((b,k)=>b.classList.toggle('active',k===i));
+}
+function setPlaying(v){
+  playing=v; playBtn.textContent=v?'❚❚':'▶';
+  if(v){ setExplore(false); bigPlay.style.display='none'; if(T>=TOTAL) seek(0); capKey=null; } else stopVoice();
+}
+function seek(time){ T=clamp(time,0,TOTAL); capKey=null; stopVoice(); }
+function setExplore(v){
+  if(explore===v) return; explore=v; exBtn.classList.toggle('on',v); $('explorePanel').classList.toggle('show',v);
+  if(v){ if(playing) setPlaying(false); bigPlay.style.display='none';
+    capEl.textContent='Fill the GPU: watch requests arrive and take memory. Then switch to Pages with the same arrival rate, and compare how many run at once.'; }
+  else capKey=null;
+}
+function frame(ts){
+  frameDt=lastTs!=null?(ts-lastTs)/1000:0;
+  if(playing){
+    let dt=Math.min(frameDt,.1);
+    if(voiceOn&&narrating()){ const h=HOLDS.find(x=>x>=T-1e-6); if(h!==undefined&&T+dt>=h) dt=Math.max(0,h-T); }
+    T+=dt;
+    if(T>=TOTAL){ T=TOTAL; if(!(voiceOn&&narrating())){ setPlaying(false); bigPlay.style.display='block'; bigPlay.textContent='↺'; } }
+  }
+  lastTs=ts; render(); requestAnimationFrame(frame);
+}
+cv.addEventListener('pointerdown',()=>{ if(!explore) setPlaying(!playing); });
+playBtn.onclick=()=>setPlaying(!playing);
+bigPlay.onclick=()=>setPlaying(true);
+$('restart').onclick=()=>{ seek(0); setPlaying(true); };
+voiceBtn.onclick=()=>{ voiceOn=!voiceOn; voiceBtn.textContent=voiceOn?'🔊 Voice on':'🔈 Voice off'; voiceBtn.classList.toggle('on',voiceOn); if(!voiceOn) stopVoice(); else capKey=null; };
+exBtn.onclick=()=>setExplore(!explore);
+document.querySelectorAll('.mode').forEach(b=>b.onclick=()=>{ document.querySelectorAll('.mode').forEach(x=>x.classList.toggle('on',x===b)); labReset(b.dataset.m); });
+$('exRate').oninput=e=>{ $('exRateV').textContent=parseFloat(e.target.value).toFixed(1); };
+$('exReset').onclick=()=>labReset();
+$('bar').onclick=e=>{ setExplore(false); const r=$('bar').getBoundingClientRect(); seek((e.clientX-r.left)/r.width*TOTAL); };
+document.addEventListener('keydown',e=>{
+  if(['INPUT','SELECT'].includes(e.target.tagName)) return;
+  if(e.code==='Space'){ e.preventDefault(); setPlaying(!playing); }
+  if(e.code==='ArrowRight'){ const {i}=locate(T); if(i<S.length-1) seek(START[i+1]+.001); }
+  if(e.code==='ArrowLeft'){ const {i,lt}=locate(T); seek(START[lt<1.5&&i>0?i-1:i]+.001); }
+});
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

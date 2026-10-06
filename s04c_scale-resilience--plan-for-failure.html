@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A plan for failure · Scale and resilience</title>
+<meta name="video-id" content="s04c">
+<meta name="section" content="Scale and resilience">
+<style>
+  :root{--blue:#58C4DD;--yellow:#F7D96F;--grey:#8a8a8a}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0b0b0d;color:#e8e8e8;font-family:Georgia,'Times New Roman',serif;display:flex;justify-content:center;padding:24px 16px 40px;min-height:100vh}
+  .wrap{width:100%;max-width:1100px}
+  header{margin-bottom:16px;display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+  header h1{font-weight:normal;font-size:28px}
+  header h1 span{color:var(--blue)}
+  header p{color:var(--grey);font-style:italic;margin-top:4px;font-size:15px}
+  .ep{font-family:Consolas,monospace;font-size:12px;color:#666;border:1px solid #26262c;border-radius:999px;padding:4px 12px}
+  .stage{position:relative;background:#000;border-radius:12px;overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,.7),0 0 0 1px #1f1f24}
+  canvas{display:block;width:100%;height:auto;cursor:pointer}
+  #bigplay{position:absolute;inset:0;margin:auto;width:96px;height:96px;border-radius:50%;border:2px solid var(--blue);background:rgba(88,196,221,.08);color:var(--blue);font-size:36px;cursor:pointer;transition:transform .25s,background .25s;padding-left:6px}
+  #bigplay:hover{transform:scale(1.08);background:rgba(88,196,221,.18)}
+  .caption{min-height:70px;padding:16px 8px 6px;text-align:center;font-size:20px;line-height:1.45;color:#ddd}
+  .controls{display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap}
+  .controls button,.explore button{background:#16161a;border:1px solid #2a2a30;color:#ddd;border-radius:8px;height:36px;min-width:42px;padding:0 12px;font-size:14px;cursor:pointer;font-family:inherit;transition:border-color .2s,color .2s}
+  .controls button:hover,.explore button:hover{border-color:var(--blue);color:var(--blue)}
+  .controls button.on{border-color:var(--yellow);color:var(--yellow)}
+  .bar{position:relative;flex:1;min-width:160px;height:8px;background:#1c1c22;border-radius:6px;cursor:pointer}
+  .fill{position:absolute;left:0;top:0;bottom:0;background:var(--blue);border-radius:6px;width:0}
+  .tick{position:absolute;top:-3px;width:2px;height:14px;background:#444}
+  #time{font-family:Consolas,monospace;font-size:13px;color:var(--grey);min-width:92px;text-align:right}
+  .explore{display:none;flex-wrap:wrap;align-items:center;gap:12px 20px;margin-top:14px;padding:14px 16px;border:1px solid #2c2c33;border-radius:10px;background:#111115;font-family:Consolas,monospace;font-size:13px;color:#bbb}
+  .explore.show{display:flex}
+  .explore label{display:flex;align-items:center;gap:8px}
+  .explore input[type=range]{width:110px;accent-color:#F7D96F}
+  .explore input[type=checkbox]{accent-color:#F7D96F;width:16px;height:16px}
+  .explore select{background:#0b0b0d;color:#eee;border:1px solid #33333b;border-radius:6px;padding:5px 8px;font-family:inherit;font-size:13px}
+  .explore b{color:var(--yellow);font-weight:normal;min-width:22px;display:inline-block}
+  .chapters{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+  .chapters button{background:transparent;border:1px solid #26262c;color:#9a9a9a;border-radius:999px;padding:6px 14px;font-size:13px;cursor:pointer;font-family:Consolas,monospace;transition:all .2s}
+  .chapters button:hover{color:#fff;border-color:#555}
+  .chapters button.active{color:#000;background:var(--blue);border-color:var(--blue)}
+  .hint{color:#555;font-size:12px;margin-top:14px;font-family:Consolas,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>A plan for <span>failure</span></h1>
+      <p>Timeouts, polite retries, the human fallback queue, and monitoring</p>
+    </div>
+    <span class="ep" style="color:#F7D96F;border-color:#3a3a2a">Section: Scale and resilience</span>
+  </header>
+  <div class="stage">
+    <canvas id="cv" aria-label="Animated explainer"></canvas>
+    <button id="bigplay" aria-label="Play">▶</button>
+  </div>
+  <div class="caption" id="cap" aria-live="polite"></div>
+  <div class="controls">
+    <button id="play" aria-label="Play or pause">▶</button>
+    <button id="restart" aria-label="Restart">↺</button>
+    <div class="bar" id="bar"><div class="fill" id="fill"></div></div>
+    <span id="time">0:00 / 0:00</span>
+    <button id="voice">🔈 Voice off</button>
+    <button id="exploreBtn">🔍 Failure drill</button>
+  </div>
+  <div class="explore" id="explorePanel">
+    <label>model <select id="fMode"><option value="healthy">healthy</option><option value="slow">slow</option><option value="down">down (no answer)</option></select></label>
+    <label>timeout <select id="fTO"><option value="0">off</option><option value="1">1 s</option><option value="2" selected>2 s</option><option value="5">5 s</option></select></label>
+    <label>retries <input type="range" id="fRT" min="0" max="3" step="1" value="1"> <b id="fRTV">1</b></label>
+    <label><input type="checkbox" id="fBO" checked> pause between retries</label>
+    <label><input type="checkbox" id="fFB" checked> save first + human queue</label>
+    <label>arrivals <input type="range" id="fL" min="1" max="8" step="1" value="3"> <b id="fLV">3</b>/s</label>
+    <button id="fReset">↺ Reset</button>
+  </div>
+  <div class="chapters" id="chapters"></div>
+  <div class="hint">Space = play/pause · ← → = chapters · Failure drill: break the model on purpose and test your plan</div>
+</div>
+
+<script>
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const W=1280, H=720; let dpr=1;
+function resize(){ dpr=Math.min(window.devicePixelRatio||1,2); cv.width=W*dpr; cv.height=H*dpr; }
+resize(); addEventListener('resize', resize);
+
+const C={white:'#ECECEC',grey:'#7d7d7d',dim:'#444',blue:'#58C4DD',yellow:'#F7D96F',green:'#83C167',red:'#FC6255',teal:'#5CD0B3',purple:'#B189C6',orange:'#FF9A4D'};
+const TEAMS=['HR','FINANCE','IT','ESTATES'], TCOL=[C.purple,C.yellow,C.blue,C.orange];
+const SERIF='Georgia, "Times New Roman", serif', MONO='Consolas, "SFMono-Regular", "Liberation Mono", monospace';
+const clamp=(x,a=0,b=1)=>Math.max(a,Math.min(b,x));
+const smooth=x=>{x=clamp(x);return x*x*(3-2*x);};
+const P=(t,s,d)=>smooth((t-s)/d);
+const lerp=(a,b,p)=>a+(b-a)*p;
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;}}
+
+/* ---------- drawing helpers ---------- */
+const fontStr=(size,font,style)=>[style,size+'px',font].filter(Boolean).join(' ');
+function txt(s,x,y,o={}){
+  const {size=28,color=C.white,align='center',alpha=1,font=SERIF,style='',p=1}=o;
+  if(alpha<=0||p<=0) return;
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.font=fontStr(size,font,style); ctx.fillStyle=color; ctx.textAlign=align; ctx.textBaseline='middle';
+  if(p<1){ const w=ctx.measureText(s).width, x0=align==='center'?x-w/2:align==='right'?x-w:x; ctx.beginPath(); ctx.rect(x0-4,y-size,(w+8)*p,size*2); ctx.clip(); }
+  ctx.fillText(s,x,y); ctx.restore();
+}
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function box(x,y,w,h,o={}){
+  const {stroke=C.white,fill=null,alpha=1,lw=2,r=10,p=1,dash=null}=o; if(alpha<=0||p<=0) return;
+  ctx.save(); ctx.globalAlpha*=alpha; rr(x,y,w,h,r); if(fill){ctx.fillStyle=fill;ctx.fill();}
+  const L=2*(w+h); if(p<1) ctx.setLineDash([L*p,L]); else if(dash) ctx.setLineDash(dash);
+  ctx.strokeStyle=stroke; ctx.lineWidth=lw; ctx.stroke(); ctx.restore();
+}
+function rect(x,y,w,h,color,alpha=1){ if(alpha<=0||w<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.fillStyle=color; ctx.fillRect(x,y,w,h); ctx.restore(); }
+function seg(x1,y1,x2,y2,o={}){
+  const {color=C.white,lw=2,alpha=1,p=1,dash=null}=o; if(p<=0||alpha<=0) return;
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.lineCap='round'; if(dash) ctx.setLineDash(dash);
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(lerp(x1,x2,p),lerp(y1,y2,p)); ctx.stroke(); ctx.restore();
+}
+function arrow(x1,y1,x2,y2,o={}){
+  const {color=C.white,p=1,alpha=1,lw=2.2,head=10}=o; if(p<=0||alpha<=0) return;
+  seg(x1,y1,x2,y2,{color,lw,alpha,p,dash:o.dash});
+  const x=lerp(x1,x2,p), y=lerp(y1,y2,p), a=Math.atan2(y2-y1,x2-x1);
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.fillStyle=color; ctx.beginPath(); ctx.moveTo(x,y);
+  ctx.lineTo(x-head*Math.cos(a-.4),y-head*Math.sin(a-.4)); ctx.lineTo(x-head*Math.cos(a+.4),y-head*Math.sin(a+.4)); ctx.closePath(); ctx.fill(); ctx.restore();
+}
+function dot(x,y,r,color,alpha=1){ if(alpha<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.fillStyle=color; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); ctx.restore(); }
+function ring(x,y,r,color,alpha=1,lw=2){ if(alpha<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke(); ctx.restore(); }
+function arc(x,y,r,f,color,alpha=1,lw=2.5){ if(alpha<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.beginPath(); ctx.arc(x,y,r,-Math.PI/2,-Math.PI/2+Math.PI*2*clamp(f)); ctx.stroke(); ctx.restore(); }
+function spinner(x,y,r,t,color,alpha=1){ if(alpha<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.strokeStyle=color; ctx.lineWidth=3; ctx.lineCap='round'; ctx.beginPath(); ctx.arc(x,y,r,t*6,t*6+4.2); ctx.stroke(); ctx.restore(); }
+function poly(pts,o={}){ const {color=C.white,lw=2.5,alpha=1}=o; if(alpha<=0||pts.length<2) return;
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.lineJoin='round'; ctx.beginPath(); pts.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y)); ctx.stroke(); ctx.restore(); }
+function person(x,y,col,a){ if(a<=0) return; ring(x,y-16,11,col,a,2.5); ctx.save(); ctx.globalAlpha*=a; ctx.strokeStyle=col; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(x,y+22,20,Math.PI,0); ctx.stroke(); ctx.restore(); }
+function cylinder(cx,cy,w,h,color,a){
+  if(a<=0) return; ctx.save(); ctx.globalAlpha*=a; ctx.strokeStyle=color; ctx.lineWidth=2; ctx.fillStyle='rgba(0,0,0,.92)';
+  ctx.beginPath(); ctx.ellipse(cx,cy+h/2,w/2,10,0,0,Math.PI); ctx.lineTo(cx-w/2,cy-h/2); ctx.ellipse(cx,cy-h/2,w/2,10,0,Math.PI,0,true); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(cx,cy-h/2,w/2,10,0,0,Math.PI*2); ctx.stroke(); ctx.restore();
+}
+function tag(x,y,s,col,a,size=14){ if(a<=0) return; ctx.save(); ctx.font=fontStr(size,MONO,''); const w=ctx.measureText(s).width+20; ctx.restore();
+  box(x-w/2,y-size,w,size*2,{stroke:col,fill:'rgba(0,0,0,.92)',alpha:a,r:6}); txt(s,x,y,{size,font:MONO,color:col,alpha:a}); }
+
+/* ======================================================================
+   FAILURE SIMULATOR (deterministic, seekable)
+   ====================================================================== */
+const DT=.02;
+class FailSim{
+  constructor(cfg){ this.cfg=cfg; this.reset(); }
+  reset(){ this.t=0; this.rng=mulberry32(this.cfg.seed||7); this.tk=[]; this.jobs=[]; this.id=0; this.next=this.gap(0);
+    this.out={team:0,human:0,lost:0}; this.log=[]; this.calls=[]; this.wasted=0; this.failStart=null; this.alertAt=null; this.alert=false; }
+  gap(t){ return t-Math.log(1-this.rng())/this.cfg.lambda(t); }
+  used(){ let n=0; for(const k of this.tk) if(k.slot) n++; return n; }
+  call(k,t){ k.st='calling'; k.callT=t; k.att++; this.jobs.push({k,att:k.att,st:'q',end:0}); this.calls.push(t); }
+  finish(k,t,kind,reason){ k.slot=false; k.st=kind; k.t0=t; k.reason=reason; }
+  step(dt){
+    const c=this.cfg, t=this.t+dt, mode=c.mode(t), SL=c.slots||12;
+    if(mode!=='healthy'){ if(this.failStart==null) this.failStart=t; } else { this.failStart=null; this.alertAt=null; }
+    while(this.next<=t){ this.tk.push({id:this.id++,st:'in',t0:this.next,arr:this.next,att:0,slot:false,team:Math.floor(this.rng()*4)}); this.next=this.gap(this.next); }
+    const to=c.timeout(t), rt=c.retries(t), bo=c.backoff(t), fb=c.fallback(t);
+    for(const k of this.tk){
+      if(k.st==='in'){ if(t-k.t0>=.6){ k.saved=fb; if(this.used()>=SL) this.finish(k,t,fb?'toHuman':'toLost',fb?'overload':'refused'); else { k.slot=true; this.call(k,t); } } }
+      else if(k.st==='calling'){ if(to>0&&t-k.callT>to){ if(k.att<=rt){ k.st='backoff'; k.until=t+(bo?.6*Math.pow(2,k.att-1)*(.5+this.rng()):.05); } else this.finish(k,t,fb?'toHuman':'toLost',fb?'failed':'timeout'); } }
+      else if(k.st==='backoff'){ if(t>=k.until) this.call(k,t); }
+      else if(k.st==='toTeam'||k.st==='toHuman'||k.st==='toLost'){ if(t-k.t0>=.8){ const kind=k.st==='toTeam'?'team':k.st==='toHuman'?'human':'lost'; this.out[kind]++; this.log.push({t,kind,reason:k.reason,wait:k.t0-k.arr}); k.st='done'; } }
+    }
+    if(mode!=='down'){
+      const st=mode==='healthy'?.35:3.5; let busy=0; for(const j of this.jobs) if(j.st==='s') busy++;
+      for(const j of this.jobs){ if(j.st==='s'&&t>=j.end){ j.st='done'; busy--; const k=j.k;
+          if(k.st==='calling'&&k.att===j.att){ const unsure=this.rng()<.15; this.finish(k,t,unsure?'toHuman':'toTeam',unsure?'unsure':'ok'); } else this.wasted++; } }
+      for(const j of this.jobs){ if(busy>=4) break; if(j.st==='q'){ j.st='s'; j.end=t+st*(.8+.4*this.rng()); busy++; } }
+    }
+    this.jobs=this.jobs.filter(j=>j.st!=='done'); if(this.jobs.length>500) this.jobs.splice(0,this.jobs.length-500);
+    this.tk=this.tk.filter(k=>k.st!=='done'); this.log=this.log.filter(e=>e.t>t-15); this.calls=this.calls.filter(x=>x>t-5);
+    const recent=this.log.filter(e=>e.t>t-8), bad=recent.filter(e=>['failed','timeout','refused','overload'].includes(e.reason)).length;
+    let oldest=0; for(const k of this.tk) if(k.st==='calling'||k.st==='backoff') oldest=Math.max(oldest,t-k.arr);
+    this.alert=(recent.length>=4&&bad/recent.length>.25)||oldest>4;
+    if(this.alert&&this.failStart!=null&&this.alertAt==null) this.alertAt=t;
+    this.t=t;
+  }
+  waitingNow(){ return this.tk.filter(k=>k.st==='calling'||k.st==='backoff').length; }
+  advanceTo(T){ while(this.t+DT<=T+1e-9) this.step(DT); }
+}
+function syncF(s,t){ if(t<s.t-1e-6) s.reset(); s.advanceTo(t); }
+
+const TEAMY=[180,225,270,315], HUMAN=[1135,410], LOST=[1135,530];
+function drawFail(s,a=1,o={}){
+  const t=s.t, mode=s.cfg.mode(t), SL=s.cfg.slots||12, used=s.used();
+  for(let i=0;i<5;i++) ring(90,270+i*30,9,C.blue,a);
+  txt('Staff',90,440,{size:17,style:'italic',color:C.grey,alpha:a});
+  box(320,180,280,290,{stroke:used>=SL?C.red:C.teal,alpha:a}); txt('API',460,207,{size:20,alpha:a});
+  const inSlot=s.tk.filter(k=>k.slot);
+  for(let i=0;i<SL;i++){ const cx=365+(i%4)*63, cy=258+Math.floor(i/4)*58;
+    box(cx-22,cy-22,44,44,{stroke:'#33333b',alpha:a,r:6}); const k=inSlot[i];
+    if(k){ if(k.st==='calling') spinner(cx,cy,11,t+i*.3,t-k.arr>3?C.red:C.yellow,a); else if(k.st==='backoff') { arc(cx,cy,11,(t-(k.until-1))/1,C.orange,a,2); txt('⏸',cx,cy,{size:14,color:C.orange,alpha:a}); } } }
+  txt(`slots in use ${used}/${SL}`,460,440,{size:14,font:MONO,color:used>=SL?C.red:C.grey,alpha:a});
+  const mc=mode==='healthy'?C.teal:mode==='slow'?C.orange:C.red;
+  arrow(602,330,756,330,{color:mc,alpha:a});
+  box(760,240,200,180,{stroke:mc,lw:mode==='healthy'?2:3,alpha:a});
+  txt('model',860,275,{size:20,alpha:a});
+  txt(mode==='healthy'?'healthy':mode==='slow'?'slow (3.5 s)':'✗ down · no answer',860,308,{size:15,font:MONO,color:mc,alpha:a});
+  const q=s.jobs.filter(j=>j.st==='q').length;
+  txt(`queued calls ${q}`,860,345,{size:13,font:MONO,color:C.grey,alpha:a});
+  txt(`calls/s ${(s.calls.length/5).toFixed(1)}`,860,370,{size:13,font:MONO,color:C.grey,alpha:a});
+  if(o.labels!==false){
+    txt('team queues',1140,150,{size:14,font:MONO,color:C.grey,alpha:a});
+    TEAMS.forEach((tm,i)=>{ box(1060,TEAMY[i]-17,160,34,{stroke:TCOL[i],alpha:a,r:6}); txt(tm,1140,TEAMY[i],{size:13,font:MONO,color:TCOL[i],alpha:a}); });
+    box(1040,380,190,60,{stroke:C.yellow,alpha:a}); txt('human queue',1135,400,{size:16,color:C.yellow,alpha:a}); txt(String(s.out.human),1135,423,{size:14,font:MONO,color:C.yellow,alpha:a});
+    box(1040,500,190,60,{stroke:C.red,alpha:a}); txt('lost / error',1135,520,{size:16,color:C.red,alpha:a}); txt(String(s.out.lost),1135,543,{size:14,font:MONO,color:C.red,alpha:a});
+  }
+  if(o.store){ arrow(460,472,460,505,{color:C.green,alpha:a}); cylinder(460,535,170,46,C.green,a); txt('tickets saved',460,535,{size:14,color:C.green,alpha:a}); }
+  for(const k of s.tk){
+    let x,y,col=C.blue,al=a;
+    if(k.st==='in'){ const u=smooth((t-k.t0)/.6), sy=270+((k.id*37)%5)*30; x=lerp(102,320,u); y=lerp(sy,330,u); }
+    else if(k.st==='toTeam'||k.st==='toHuman'||k.st==='toLost'){
+      const u=smooth((t-k.t0)/.8), from=(k.reason==='refused'||k.reason==='overload')?[330,330]:[600,330];
+      const to=k.st==='toTeam'?[1060,TEAMY[k.team]]:k.st==='toHuman'?[1040,HUMAN[1]]:[1040,LOST[1]];
+      x=lerp(from[0],to[0],u); y=lerp(from[1],to[1],u)+Math.sin(u*Math.PI)*(k.st==='toLost'?40:0);
+      col=k.st==='toTeam'?TCOL[k.team]:k.st==='toHuman'?C.yellow:C.red;
+    } else continue;
+    dot(x,y,5,col,al);
+  }
+  if(o.alert&&s.alert) tag(860,205,'🔔 ALERT · on-call paged',C.red,a*(.75+.25*Math.sin(t*8)),14);
+  if(o.stats){
+    box(80,600,1120,96,{stroke:'#2c2c33',fill:'rgba(8,8,11,.9)',alpha:a});
+    const cols=[['routed by model',s.out.team,C.green],['human queue',s.out.human,C.yellow],['lost / error',s.out.lost,C.red],['staff waiting now',s.waitingNow(),s.waitingNow()>8?C.red:C.white],['wasted model work',s.wasted,C.orange]];
+    cols.forEach(([l,v,c],i)=>{ const x=192+i*224; txt(l,x,628,{size:14,style:'italic',color:C.grey,alpha:a}); txt(String(v),x,664,{size:26,font:MONO,color:c,alpha:a}); });
+  }
+}
+
+/* ======================================================================
+   SCENES
+   ====================================================================== */
+const naive=x=>x<10?3:x<11?lerp(3,12,x-10):x<14?12:3+9*Math.exp(-(x-14)/9);
+const g=(x,m,s)=>Math.exp(-((x-m)**2)/(2*s*s));
+const polite=x=>3+1.3*g(x,11,.45)+1.1*g(x,12.6,.7)+.9*g(x,15,1.1);
+
+const S=[
+/* 1 ─ 10:15 */
+{title:'10:15',dur:24,
+ sim:new FailSim({seed:3,lambda:()=>3,mode:t=>t<2?'healthy':'down',timeout:()=>0,retries:()=>0,backoff:()=>false,fallback:()=>false}),
+ caps:[[0,"Imagine this. It's 10:15 on a busy morning, and the model service crashes."],
+       [6,"Tickets are still arriving. Without a plan, each request waits for an answer that never comes."],
+       [12.5,"Staff stare at spinners. Some give up. Some tickets are simply lost."],
+       [17.5,"Resilience doesn't mean nothing ever fails. It means the system has a plan for failure."]],
+ draw(t){
+   txt('SECTION · SCALE AND RESILIENCE',640,60,{size:15,font:MONO,color:C.yellow,alpha:P(t,.2,.8)*(1-P(t,1.6,.5))});
+   syncF(this.sim,t); drawFail(this.sim,P(t,.2,.8),{stats:true});
+   txt('10:15',640,95,{size:44,font:MONO,color:C.red,alpha:P(t,1.8,.6)*(1-P(t,17.2,.5))});
+   txt('no plan: spinners · refusals · lost tickets',640,140,{size:20,color:C.red,alpha:P(t,12.6,.6)*(1-P(t,17.2,.5))});
+   txt('Resilience is not “nothing fails”.',640,92,{size:28,color:C.yellow,p:P(t,17.6,1.4)});
+   txt('It is a plan for failure.',640,135,{size:28,color:C.yellow,p:P(t,19.2,1.2)});
+ }},
+
+/* 2 ─ Ways to fail */
+{title:'Ways to fail',dur:20.5,
+ caps:[[0,"Things fail in different ways."],
+       [2.5,"A service can crash and say nothing. It can be slow. It can be overloaded. Or it can answer, but not be sure."],
+       [11,"We already have a plan for “not sure”: the threshold sends it to a person."],
+       [16.5,"Now we need a plan for “down” and for “slow”."]],
+ draw(t){
+   txt('How things fail',640,90,{size:40,p:P(t,.2,1.4)});
+   const cards=[['crashed','no answer at all',C.red,'✗'],['slow','answers, eventually',C.orange,'⏳'],['overloaded','too many requests',C.orange,'≋'],['not sure','answers, low confidence',C.yellow,'?']];
+   cards.forEach(([h,d,col,ic],i)=>{ const x=80+i*290, a=P(t,2.6+i*1.6,.6);
+     const done=i===3&&t>11.2, next=i<2&&t>16.6;
+     box(x,190,260,250,{stroke:done?C.green:next?C.yellow:col,lw:next?3:2,alpha:a});
+     txt(ic,x+130,260,{size:46,color:col,alpha:a});
+     txt(h,x+130,330,{size:26,color:col,alpha:a});
+     txt(d,x+130,370,{size:16,style:'italic',color:C.grey,alpha:a});
+     if(done) tag(x+130,410,'✓ plan: the threshold',C.green,P(t,11.3,.5),12);
+     if(next) tag(x+130,410,'plan needed',C.yellow,P(t,16.7,.5),12); });
+   txt('design for “right”, for “not sure”, and for “down”',640,540,{size:26,color:C.yellow,p:P(t,17,1.8)});
+ }},
+
+/* 3 ─ Timeout */
+{title:'Timeout',dur:31,
+ sim:new FailSim({seed:5,lambda:()=>3,mode:t=>t<1?'healthy':'down',timeout:t=>t>=16?2:0,retries:()=>0,backoff:()=>false,fallback:()=>false}),
+ caps:[[0,"Start with the simplest rule: don't wait forever."],
+       [3.2,"The model is down. Each call holds one of the API's slots while it waits."],
+       [9,"The slots fill up. Now the API itself is stuck. Even requests that never needed the model are refused."],
+       [16.2,"Add a timeout: after two seconds, give up and free the slot."],
+       [21,"The API stays alive. Staff get a quick answer instead of an endless spinner."],
+       [26.5,"One failure no longer drags everything else down with it."]],
+ draw(t){
+   syncF(this.sim,t); drawFail(this.sim,P(t,.2,.8),{stats:true});
+   tag(460,150,t<16?'timeout: off':'timeout: 2 s',t<16?C.red:C.green,P(t,.6,.5),15);
+   txt('API full → even GET /model-info is refused (503)',640,92,{size:20,color:C.red,alpha:P(t,9.2,.6)*(1-P(t,15.8,.5))});
+   txt('a failure in one part spreads to the whole API',640,120,{size:17,style:'italic',color:C.red,alpha:P(t,10.5,.6)*(1-P(t,15.8,.5))});
+   txt('each slot is freed after 2 s · the API stays alive',640,92,{size:20,color:C.green,alpha:P(t,17,.6)});
+   txt('still an error for the ticket — we fix that with the fallback',640,120,{size:17,style:'italic',color:C.grey,alpha:P(t,22,.6)});
+ }},
+
+/* 4 ─ Retry, carefully */
+{title:'Retry, carefully',dur:35,
+ caps:[[0,"Some failures last only a moment. A network blip, a busy second."],
+       [4.3,"So try again. The second attempt often works."],
+       [8,"But retries are dangerous. If every client retries instantly when the service struggles, the load doubles, then triples."],
+       [15.5,"The struggling service gets buried by its own retries. This is a retry storm."],
+       [21.3,"The fix: retry a limited number of times, and pause between tries. Make each pause longer, with a little randomness, so clients don't retry in sync."],
+       [31.5,"Retry, but politely."]],
+ draw(t){
+   const A=P(t,.2,.6)*(1-P(t,8.4,.6));
+   if(A>0){
+     person(240,330,C.blue,A); box(900,290,170,80,{stroke:C.teal,alpha:A}); txt('model',985,330,{size:18,alpha:A});
+     seg(270,330,896,330,{color:'#24242c',lw:2,alpha:A});
+     const pkt=(t0,ok,lab)=>{ const u=t-t0; if(u<0||u>1.8) return; let x, col=C.white;
+       if(u<.8) x=lerp(270,896,smooth(u/.8)); else { x=lerp(896,270,smooth((u-.8)/.8)); col=ok?C.green:C.red; }
+       dot(x,330,7,col,A); if(u>=.8) txt(ok?'200 ✓':'error ✗',x,305,{size:14,font:MONO,color:col,alpha:A}); };
+     pkt(.8,false); pkt(4.4,true);
+     txt('attempt 1',240,395,{size:14,font:MONO,color:C.grey,alpha:A*P(t,.8,.3)*(1-P(t,4.2,.3))});
+     txt('attempt 2',240,395,{size:14,font:MONO,color:C.grey,alpha:A*P(t,4.4,.3)});
+     if(t>2.6&&t<4.4){ arc(583,260,16,(t-2.6)/1.8,C.orange,A,3); txt('pause',583,295,{size:14,font:MONO,color:C.orange,alpha:A}); }
+     txt('✓ the blip has passed',583,420,{size:18,color:C.green,alpha:A*P(t,6,.5)});
+   }
+   const B=P(t,8.6,.8); if(B<=0) return;
+   const X=x=>lerp(160,1120,x/40), Y=v=>lerp(560,170,v/12);
+   seg(160,560,1130,560,{color:C.grey,lw:1.5,alpha:B}); seg(160,560,160,160,{color:C.grey,lw:1.5,alpha:B});
+   [0,10,20,30,40].forEach(s=>txt(s+' s',X(s),582,{size:13,font:MONO,color:C.grey,alpha:B}));
+   [3,6,9,12].forEach(v=>txt(String(v),148,Y(v),{size:12,font:MONO,color:'#555',align:'right',alpha:B}));
+   txt('calls per second reaching the model',170,150,{size:15,style:'italic',color:C.grey,align:'left',alpha:B});
+   rect(X(10),170,X(14)-X(10),390,'#ffffff',.06*B); txt('blip',X(12),185,{size:13,font:MONO,color:C.grey,alpha:B});
+   seg(160,Y(6),1120,Y(6),{color:C.red,lw:1.5,dash:[7,6],alpha:B}); txt('model capacity',1115,Y(6)-14,{size:13,font:MONO,color:C.red,align:'right',alpha:B});
+   const curve=(fn,pr)=>{ const pts=[]; for(let i=0;i<=400*pr;i++){ const x=40*i/400; pts.push([X(x),Y(fn(x))]); } return pts; };
+   poly(curve(naive,P(t,9,6)),{color:C.red,lw:3,alpha:B*(t>21?.45:1)});
+   txt('instant retries from everyone',X(15)+10,Y(12)-4,{size:16,color:C.red,align:'left',alpha:P(t,10,.6)});
+   txt('retry storm: buried for 10 more seconds',X(19),Y(8.4),{size:16,color:C.red,align:'left',alpha:P(t,15.6,.6)});
+   poly(curve(polite,P(t,21.6,5)),{color:C.green,lw:3.5});
+   txt('limited retries · growing pauses · jitter',X(17),Y(4.6),{size:16,color:C.green,align:'left',alpha:P(t,24,.6)});
+   tag(640,640,'try → wait ~1 s → try → wait ~2 s → try → give up → fallback',C.green,P(t,26.5,.6),15);
+   txt('illustrative numbers',1250,700,{size:13,color:'#4a4a4a',align:'right',font:MONO});
+ }},
+
+/* 5 ─ Fallback */
+{title:'Fallback: the human queue',dur:34,
+ sim:new FailSim({seed:9,lambda:()=>3,mode:t=>t<12||t>=26?'healthy':'down',timeout:()=>2,retries:()=>1,backoff:()=>true,fallback:()=>true}),
+ caps:[[0,"Every ticket needs somewhere to go, whatever happens."],
+       [3.5,"Confident: straight to the team's queue."],
+       [6.5,"Not sure: the human queue, where a person reads it."],
+       [10,"Model down or too slow: the human queue too, and an alert to the on-call engineer."],
+       [16,"The service desk works more slowly for a while. But no ticket is ever lost."],
+       [22,"One more rule makes that promise real: save the ticket first, then try to route it."],
+       [28.5,"If the save worked, the ticket exists, whatever the model does next."]],
+ draw(t){
+   syncF(this.sim,t); const s=this.sim;
+   drawFail(s,P(t,.2,.8),{stats:true,store:t>=21.8,alert:true});
+   tag(1140,112,'confident → team queue',C.green,P(t,3.6,.5),13);
+   tag(1135,470,'not sure · down · too slow',C.yellow,P(t,6.6,.5),13);
+   txt('0 lost',1135,590,{size:18,font:MONO,color:C.green,alpha:P(t,16.2,.6)});
+   tag(400,505,'1 · save',C.green,P(t,22.2,.5),13); tag(680,300,'2 · route',C.teal,P(t,23,.5),13);
+   txt('the service slows down · it never goes down',640,92,{size:22,color:C.yellow,p:P(t,16.4,1.6)});
+ }},
+
+/* 6 ─ Monitoring */
+{title:'Monitoring',dur:28,
+ caps:[[0,"Last piece: know before staff tell you."],
+       [3,"Monitoring watches a few numbers all the time: how many calls fail, how long answers take, and how many tickets fall back to people."],
+       [12.5,"At 10:15 the model crashes. Within seconds the numbers cross their alert lines, and the on-call engineer is paged."],
+       [20.5,"The first phone call from a ward comes fifteen minutes later. By then, the model is already back."]],
+ draw(t){
+   txt('Know before staff tell you',640,80,{size:34,p:P(t,.2,1.4)});
+   const cur=clamp((t-3.2)/17)*25, X=m=>lerp(100,760,m/25), out=m=>m>=5&&m<14;
+   const charts=[['failed calls',m=>out(m)?.95:.02,.25,'%',C.red],['response time (p95)',m=>out(m)?.85:.18,.5,' s',C.orange],['tickets to people',m=>out(m)?1:.15,.5,'%',C.yellow]];
+   charts.forEach(([title,fn,al,u,col],i)=>{ const y0=140+i*140, a=P(t,3.2+i*.8,.6);
+     box(80,y0,700,120,{stroke:'#2c2c33',fill:'rgba(8,8,11,.9)',alpha:a});
+     txt(title,96,y0+18,{size:14,font:MONO,color:C.grey,align:'left',alpha:a});
+     const Y=v=>lerp(y0+108,y0+34,v);
+     seg(100,Y(al),760,Y(al),{color:C.red,lw:1.2,dash:[5,5],alpha:a}); txt('alert line',756,Y(al)-10,{size:11,font:MONO,color:C.red,align:'right',alpha:a});
+     const pts=[]; for(let m=0;m<=cur;m+=.05){ const v=fn(m), sm=m>=5&&m<5.15?lerp(fn(4.9),v,(m-5)/.15):v; pts.push([X(m),Y(sm)]); }
+     poly(pts,{color:col,lw:2.5,alpha:a});
+   });
+   ['10:10','10:15','10:20','10:25','10:30','10:35'].forEach((l,i)=>txt(l,X(i*5),572,{size:12,font:MONO,color:C.grey,alpha:P(t,3.2,.6)}));
+   seg(X(cur),135,X(cur),560,{color:C.white,lw:1,alpha:P(t,3.2,.6)*.4});
+   const ev=[[5,'10:15:00  model crashes',C.red],[5.33,'10:15:20  alert lines crossed',C.orange],[5.5,'10:15:30  on-call engineer paged',C.yellow],[14,'10:24  model restarted',C.green],[21,'10:31  first phone call from a ward',C.grey]];
+   txt('what happened',840,140,{size:15,font:MONO,color:C.grey,align:'left',alpha:P(t,3.2,.6)});
+   ev.forEach(([m,s,col],i)=>{ const a=cur>=m?P(cur,m,.3):0; dot(850,190+i*70,6,col,a); if(i<4) seg(850,196+i*70,850,254+i*70,{color:'#333',lw:1.5,alpha:a}); txt(s,870,190+i*70,{size:16,font:MONO,color:col,align:'left',alpha:a}); });
+   tag(1030,560,'fixed before anyone phoned',C.green,P(t,21.6,.6),15);
+   txt('illustrative timeline',1250,700,{size:13,color:'#4a4a4a',align:'right',font:MONO});
+ }},
+
+/* 7 ─ Nothing is allowed to go down */
+{title:'“Nothing may go down”',dur:29,
+ caps:[[0,"The CCIO said: “Nothing on the wards is allowed to go down.”"],
+       [4.5,"Taken literally, that's impossible. Every component fails sometimes."],
+       [8.8,"So split the service in two. Accepting and saving tickets must never stop. Automatic routing is allowed to degrade to manual routing."],
+       [17.5,"That is graceful degradation: slower and more manual, but never down."],
+       [22,"And rehearse it. Switch the model off on purpose, before reality does it for you."]],
+ draw(t){
+   txt('“Nothing on the wards is allowed to go down.”',640,95,{size:32,style:'italic',p:P(t,.3,2)});
+   txt('— CCIO, Harbourside Health',640,140,{size:16,font:MONO,color:C.grey,alpha:P(t,2,.6)});
+   txt('every component fails sometimes',640,190,{size:20,color:C.red,alpha:P(t,4.6,.6)*(1-P(t,8.6,.5))});
+   const a1=P(t,9,.7), a2=P(t,12.5,.7);
+   box(140,220,1000,120,{stroke:C.green,lw:3,alpha:a1,p:a1});
+   txt('MUST NEVER STOP',180,255,{size:16,font:MONO,color:C.green,align:'left',alpha:a1});
+   txt('accept and save every ticket',180,298,{size:28,align:'left',alpha:a1});
+   box(140,360,1000,120,{stroke:C.yellow,lw:2,alpha:a2,p:a2,dash:[8,6]});
+   txt('ALLOWED TO DEGRADE',180,395,{size:16,font:MONO,color:C.yellow,align:'left',alpha:a2});
+   txt('automatic routing  →  manual routing by people',180,438,{size:28,align:'left',alpha:a2});
+   txt('graceful degradation: slower, more manual, never down',640,535,{size:24,color:C.yellow,p:P(t,17.6,1.8)});
+   const fa=P(t,22.2,.6);
+   box(390,580,500,70,{stroke:C.orange,alpha:fa});
+   rr(420,600,60,30,15); ctx.save(); ctx.globalAlpha*=fa; ctx.strokeStyle=C.orange; ctx.lineWidth=2; ctx.stroke(); ctx.restore();
+   const sw=P(t,23.4,.5); dot(lerp(465,435,sw),615,11,sw>.5?C.red:C.green,fa);
+   txt('fire drill: switch the model off on purpose',505,615,{size:18,align:'left',alpha:fa});
+ }},
+
+/* 8 ─ Breakout D */
+{title:'Design challenge: the model crashes',dur:29.5,
+ caps:[[0,"Design challenge: the model crashes at 10:15, and tickets keep arriving."],
+       [5,"Component: timeouts, limited retries, a human fallback queue, and alerting."],
+       [10,"Where it sits: inside the API, around every call to the model, with the ticket saved first."],
+       [16.8,"It protects against a crashed or slow model, lost tickets, and a frozen API."],
+       [22,"New problems: the human queue fills up fast, alerts must not cry wolf, and failures must be rehearsed."]],
+ draw(t){
+   const a=P(t,.3,.8);
+   txt('Design challenge · the model crashes at 10:15, tickets keep arriving',640,95,{size:26,color:C.orange,alpha:a});
+   const rows=[['COMPONENT',['Timeout + limited retries + human fallback queue + alerting'],5.1],
+               ['WHERE IT SITS',['Inside the API, around every call to the model','(save the ticket first, then route it)'],10.1],
+               ['PROTECTS AGAINST',['A crashed or slow model · lost tickets · a frozen API'],16.9],
+               ['NEW PROBLEMS',['The human queue fills up fast during an outage','Alerts must not cry wolf · failures must be rehearsed'],22.1]];
+   let y=190;
+   rows.forEach(([k,lines,s])=>{ const ra=P(t,s,.6);
+     seg(100,y-30,1180,y-30,{color:'#22222a',lw:1,alpha:ra});
+     txt(k,110,y,{size:15,font:MONO,color:k==='NEW PROBLEMS'?C.orange:C.yellow,align:'left',alpha:ra});
+     lines.forEach((l,i)=>txt(l,360,y+i*32,{size:21,align:'left',p:P(t,s+.2,1.4)}));
+     y+=70+(lines.length-1)*32; });
+ }},
+
+/* 9 ─ The whole map */
+{title:'The full deployment map',dur:40,
+ caps:[[0,"Every idea, one map. This is the full deployment map."],
+       [3.5,"Staff send a POST with JSON, synchronously, through a load balancer to stateless API copies."],
+       [10,"Each copy saves the ticket first, then calls the model, with a timeout and polite retries."],
+       [16.5,"Confident answers go to team queues. Unsure or failed ones go to the human queue."],
+       [22.5,"A cache answers /model-info. The overnight job runs asynchronously, through its own queue and workers."],
+       [29,"And monitoring watches all of it."],
+       [32,"Label every arrow, name what each component protects against, and keep it. Where the data lives is the next design question."]],
+ draw(t){
+   const s1=P(t,3.6,.7), s2=P(t,10.1,.7), s3=P(t,16.6,.7), s4=P(t,22.6,.7), s5=P(t,29.1,.7);
+   const lab=(s,x,y,a,col=C.grey)=>txt(s,x,y,{size:12,font:MONO,color:col,alpha:a});
+   box(40,270,130,60,{stroke:C.blue,alpha:s1}); txt('Staff portal',105,300,{size:16,alpha:s1});
+   box(260,270,120,60,{stroke:C.yellow,alpha:s1}); txt('Load',320,290,{size:15,alpha:s1}); txt('balancer',320,310,{size:15,alpha:s1});
+   arrow(172,300,256,300,{alpha:s1}); lab('POST · JSON',214,282,s1); lab('sync',214,318,s1);
+   [0,1,2].forEach(i=>box(450+i*8,254+i*8,190,80,{stroke:C.teal,fill:'rgba(0,0,0,.95)',alpha:s1}));
+   txt('API copies',561,290,{size:17,alpha:s1}); txt('stateless',561,312,{size:12,font:MONO,color:C.grey,alpha:s1});
+   arrow(382,300,446,300,{alpha:s1}); lab('sync',414,282,s1);
+   lab('timeout · polite retries',561,232,s2,C.green);
+   cylinder(561,440,160,46,C.green,s2); txt('tickets · saved first',561,440,{size:13,color:C.green,alpha:s2});
+   arrow(561,352,561,412,{color:C.green,alpha:s2}); /* where the data lives is a separate design question */
+   box(750,276,130,60,{stroke:C.teal,alpha:s2}); txt('ML model',815,306,{size:16,alpha:s2});
+   arrow(658,306,746,306,{alpha:s2}); lab('POST · JSON',702,288,s2); lab('sync · 2 s',702,324,s2);
+   txt('team queues',1070,168,{size:13,font:MONO,color:C.grey,alpha:s3});
+   TEAMS.forEach((tm,i)=>{ const y=200+i*44; box(990,y-16,160,32,{stroke:TCOL[i],alpha:s3,r:6}); txt(tm,1070,y,{size:13,font:MONO,color:TCOL[i],alpha:s3}); arrow(882,306,986,y,{color:TCOL[i],lw:1.5,alpha:s3*.8}); });
+   lab('confident',930,240,s3,C.green);
+   box(990,400,220,52,{stroke:C.yellow,alpha:s3}); txt('human queue',1100,426,{size:17,color:C.yellow,alpha:s3});
+   arrow(660,330,986,420,{color:C.yellow,lw:1.8,alpha:s3}); lab('unsure · failed · down',830,392,s3,C.yellow);
+   box(470,150,170,46,{stroke:C.yellow,alpha:s4,r:8}); txt('cache',555,166,{size:15,color:C.yellow,alpha:s4}); txt('GET /model-info',555,184,{size:11,font:MONO,color:C.grey,alpha:s4});
+   arrow(320,268,466,180,{color:C.yellow,lw:1.6,alpha:s4}); lab('GET · JSON · sync',360,200,s4);
+   box(260,560,120,52,{stroke:C.purple,alpha:s4}); txt('Batch job',320,586,{size:15,alpha:s4});
+   box(450,560,200,52,{stroke:C.purple,alpha:s4,r:26}); txt('async queue',550,586,{size:15,color:C.purple,alpha:s4});
+   box(750,560,130,52,{stroke:C.purple,alpha:s4}); txt('workers',815,586,{size:15,alpha:s4});
+   arrow(382,586,446,586,{color:C.purple,alpha:s4}); arrow(652,586,746,586,{color:C.purple,alpha:s4}); arrow(815,558,815,340,{color:C.purple,alpha:s4});
+   lab('async',414,570,s4,C.purple); lab('async',700,570,s4,C.purple); lab('async',845,450,s4,C.purple);
+   box(40,70,1200,44,{stroke:C.purple,alpha:s5,dash:[7,6]});
+   txt('MONITORING · failed calls · response time · human-queue share · queue length → alerts to on-call',640,92,{size:15,font:MONO,color:C.purple,alpha:s5});
+   tag(640,670,'label every arrow · name what each part protects against',C.yellow,P(t,32.2,.6),15);
+ }},
+
+/* 10 ─ Four things to remember */
+{title:'Four things to remember',dur:29,
+ caps:[[0,"Four things to remember."],
+       [2.5,"One. An ML model isn't an application until something can call it. The API is that interface."],
+       [9,"Two. Training learns, inference uses. They happen at different times, often in different places."],
+       [14.8,"Three. Confidence is not correctness. Design for “not sure” and for “down”, not only for “right”."],
+       [21.3,"Four. Scale, caching, async and fallbacks are choices with costs. Name what each one protects against."]],
+ draw(t){
+   txt('Four things to remember',640,100,{size:46,p:P(t,.2,1.5)});
+   const L=[["A model isn’t an application until something can call it.",2.6],
+            ["Training learns. Inference uses.",9.1],
+            ["Confidence ≠ correctness. Design for “not sure” and “down”.",14.9],
+            ["Every choice has a cost. Name what it protects against.",21.4]];
+   L.forEach(([s,t0],i)=>{ const y=215+i*92;
+     txt(String(i+1),150,y,{size:40,color:C.blue,alpha:P(t,t0,.6)});
+     txt(s,205,y,{size:26,align:'left',p:P(t,t0+.2,1.6)}); });
+   txt('Go deeper',640,622,{size:16,font:MONO,color:C.grey,alpha:P(t,26.5,1)});
+   txt('How sure is sure? · Monday, 09:00 · Is someone waiting?',640,655,{size:18,font:MONO,color:C.yellow,alpha:P(t,27.1,1)});
+ }}
+];
+
+/* ======================================================================
+   FAILURE DRILL (live)
+   ====================================================================== */
+const $=id=>document.getElementById(id);
+const D={mode:'healthy',to:2,rt:1,bo:true,fb:true,lam:3};
+const drill=new FailSim({seed:1,lambda:()=>D.lam,mode:()=>D.mode,timeout:()=>D.to,retries:()=>D.rt,backoff:()=>D.bo,fallback:()=>D.fb});
+function renderExplore(dt){
+  drill.advanceTo(drill.t+Math.min(dt,.1));
+  drawFail(drill,1,{stats:true,store:D.fb,alert:true});
+  txt('FAILURE DRILL · break the model, then test your plan',40,38,{size:15,font:MONO,color:C.yellow,align:'left'});
+  const msg=[];
+  if(D.mode!=='healthy'&&drill.failStart!=null){
+    const since=(drill.t-drill.failStart).toFixed(0);
+    msg.push(drill.alertAt!=null?`alert raised ${(drill.alertAt-drill.failStart).toFixed(1)} s after the failure began`:`failure began ${since} s ago · no alert yet`);
+  }
+  if(D.to===0&&D.mode==='down') msg.push('no timeout: slots never free up');
+  if(!D.fb&&drill.out.lost>0) msg.push('no fallback: tickets are being lost');
+  if(!D.bo&&D.rt>0&&D.mode==='slow') msg.push('instant retries pile extra work onto a slow model');
+  msg.forEach((m,i)=>txt(m,640,92+i*26,{size:17,style:'italic',color:i===0&&drill.alertAt!=null?C.yellow:C.red}));
+}
+
+/* ======================================================================
+   PLAYER
+   ====================================================================== */
+const START=[]; let TOTAL=0; S.forEach(s=>{START.push(TOTAL); TOTAL+=s.dur;});
+let T=0, playing=false, lastTs=null, voiceOn=false, capKey=null, explore=false, frameDt=0;
+const capEl=$('cap'), fillEl=$('fill'), timeEl=$('time'), playBtn=$('play'), bigPlay=$('bigplay'), voiceBtn=$('voice'), exBtn=$('exploreBtn');
+S.forEach((s,i)=>{
+  if(i>0){ const tk=document.createElement('div'); tk.className='tick'; tk.style.left=(START[i]/TOTAL*100)+'%'; $('bar').appendChild(tk); }
+  const b=document.createElement('button'); b.textContent=`${i+1} · ${s.title}`;
+  b.onclick=()=>{ setExplore(false); seek(START[i]+.001); if(!playing) setPlaying(true); };
+  $('chapters').appendChild(b);
+});
+const chapBtns=[...$('chapters').children];
+const locate=time=>{ for(let i=S.length-1;i>=0;i--) if(time>=START[i]) return {i,lt:Math.min(time-START[i],S[i].dur)}; return {i:0,lt:0}; };
+const fmt=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+/* ---------- NARRATOR: every word is spoken before the video moves on ---------- */
+const SAY=[[/“|”|"/g,''],[/TF-IDF/g,'T F I D F'],[/\b2xx\b/g,'two hundreds'],[/\b4xx\b/g,'four hundreds'],[/\b5xx\b/g,'five hundreds'],
+  [/HUMAN_REVIEW/g,'human review'],[/\bFINANCE\b/g,'Finance'],[/\bESTATES\b/g,'Estates'],[/\bIT\b/g,'I T'],[/\bHR\b/g,'H R'],
+  [/\bCCIO\b/g,'C C I O'],[/(\d{2}):(\d{2})/g,(m,h,mi)=>`${+h} ${mi==='00'?"o'clock":mi}`],[/7f3a/g,'7 F 3 A'],[/\//g,' slash ']];
+const NAR={u:null,speaking:false,until:0,voice:null,list:[]};
+const HOLDS=[]; S.forEach((s,i)=>{ s.caps.forEach((c,k)=>{ if(k>0) HOLDS.push(START[i]+c[0]-.02); }); HOLDS.push(START[i]+s.dur-.6); }); HOLDS.sort((a,b)=>a-b);
+const vSel=document.createElement('select'); vSel.title='Narrator voice';
+vSel.style.cssText='background:#16161a;border:1px solid #2a2a30;color:#ddd;border-radius:8px;height:36px;padding:0 8px;font-family:inherit;font-size:13px;max-width:200px';
+voiceBtn.after(vSel);
+const vNorm=l=>(l||'').replace('_','-');
+const vRank=v=>{ const l=vNorm(v.lang); return /^en-GB/i.test(l)?0:/^en-US/i.test(l)?1:/^en/i.test(l)?2:9; };
+const vGood=v=>/natural|online|google|neural|premium|enhanced/i.test(v.name)?1:0;
+const vName=v=>v.name.replace(/^(Microsoft|Google|Apple) /,'').replace(/\s*-\s*English.*$/,'').slice(0,34);
+function pickVoices(){
+  if(!('speechSynthesis' in window)) return;
+  const vs=speechSynthesis.getVoices().filter(v=>vRank(v)<9).sort((a,b)=>vRank(a)-vRank(b)||vGood(b)-vGood(a));
+  if(!vs.length) return;
+  NAR.list=vs; vSel.innerHTML='';
+  const label={0:'🇬🇧 UK English',1:'🇺🇸 US English',2:'Other English'}; let g=null, og=null;
+  vs.forEach((v,i)=>{
+    const r=vRank(v);
+    if(r!==g){ g=r; og=document.createElement('optgroup'); og.label=label[r]; vSel.appendChild(og); }
+    const o=document.createElement('option'); o.value=i; o.textContent=vName(v)+' · '+vNorm(v.lang); og.appendChild(o);
+  });
+  if(!vs.some(v=>vRank(v)===0)){
+    const og2=document.createElement('optgroup'); og2.label='No UK voice on this device';
+    const o=document.createElement('option'); o.value='help'; o.textContent='➕ How to add a UK English voice'; og2.appendChild(o); vSel.appendChild(og2);
+  }
+  const cur=NAR.voice?vs.findIndex(v=>v.name===NAR.voice.name):-1, i=cur>=0?cur:0;
+  vSel.value=String(i); NAR.voice=vs[i];
+}
+if('speechSynthesis' in window){ speechSynthesis.onvoiceschanged=pickVoices; pickVoices(); [300,1200,3500].forEach(ms=>setTimeout(pickVoices,ms)); }
+else vSel.style.display='none';
+vSel.onchange=()=>{
+  if(vSel.value==='help'){
+    capEl.textContent='To add a UK voice — Windows: Settings → Time & language → Speech → Add voices → English (United Kingdom). Mac: System Settings → Accessibility → Spoken Content → System voice → Manage Voices → English (UK). Or open this page in Microsoft Edge or Google Chrome, which include free UK voices. Then reload the page.';
+    vSel.value=String(Math.max(0,NAR.list.indexOf(NAR.voice))); return;
+  }
+  NAR.voice=NAR.list[+vSel.value]; stopVoice(); capKey=null;
+};
+function speak(s){
+  if(!voiceOn||!playing||!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const text=SAY.reduce((a,[r,v])=>a.replace(r,v),s);
+  const u=new SpeechSynthesisUtterance(text);
+  if(NAR.voice){ u.voice=NAR.voice; u.lang=NAR.voice.lang; } else u.lang='en-GB';
+  u.rate=1;
+  NAR.u=u; NAR.speaking=true; NAR.until=performance.now()+(text.split(/\s+/).length/2+4)*1000;
+  u.onend=u.onerror=()=>{ if(NAR.u===u) NAR.speaking=false; };
+  setTimeout(()=>{ if(NAR.u===u) speechSynthesis.speak(u); },80);
+}
+function stopVoice(){ NAR.speaking=false; NAR.u=null; if('speechSynthesis' in window) speechSynthesis.cancel(); }
+function narrating(){ if(!NAR.speaking) return false; if(performance.now()>NAR.until){ NAR.speaking=false; return false; } return true; }
+function updateCaption(i,lt){
+  const caps=S[i].caps; let ci=0; caps.forEach((c,k)=>{ if(lt>=c[0]) ci=k; });
+  const key=i+'-'+ci; if(key!==capKey){ capKey=key; capEl.textContent=caps[ci][1]; speak(caps[ci][1]); }
+}
+function render(){
+  ctx.setTransform(dpr,0,0,dpr,0,0); ctx.globalAlpha=1; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+  if(explore){ renderExplore(frameDt); return; }
+  const {i,lt}=locate(T), s=S[i], last=i===S.length-1;
+  ctx.globalAlpha=Math.min(P(lt,0,.45), last?1:1-P(lt,s.dur-.55,.55));
+  s.draw(lt); ctx.globalAlpha=1;
+  txt(`${i+1} · ${s.title}`,40,38,{size:15,color:'#555',align:'left',font:MONO});
+  updateCaption(i,lt);
+  fillEl.style.width=(T/TOTAL*100)+'%'; timeEl.textContent=`${fmt(T)} / ${fmt(TOTAL)}`;
+  chapBtns.forEach((b,k)=>b.classList.toggle('active',k===i));
+}
+function setPlaying(v){
+  playing=v; playBtn.textContent=v?'❚❚':'▶';
+  if(v){ setExplore(false); bigPlay.style.display='none'; if(T>=TOTAL) seek(0); capKey=null; } else stopVoice();
+}
+function seek(time){ T=clamp(time,0,TOTAL); capKey=null; stopVoice(); }
+function setExplore(v){
+  if(explore===v) return; explore=v; exBtn.classList.toggle('on',v); $('explorePanel').classList.toggle('show',v);
+  if(v){ if(playing) setPlaying(false); bigPlay.style.display='none';
+    capEl.textContent='Failure drill: set the model to slow or down, then change the timeout, retries, pauses and fallback. Can you lose zero tickets and keep the API alive?'; }
+  else capKey=null;
+}
+function frame(ts){
+  frameDt=lastTs!=null?(ts-lastTs)/1000:0;
+  if(playing){
+    let dt=Math.min(frameDt,.1);
+    if(voiceOn&&narrating()){ const h=HOLDS.find(x=>x>=T-1e-6); if(h!==undefined&&T+dt>=h) dt=Math.max(0,h-T); }
+    T+=dt;
+    if(T>=TOTAL){ T=TOTAL; if(!(voiceOn&&narrating())){ setPlaying(false); bigPlay.style.display='block'; bigPlay.textContent='↺'; } }
+  }
+  lastTs=ts; render(); requestAnimationFrame(frame);
+}
+cv.addEventListener('pointerdown',()=>{ if(!explore) setPlaying(!playing); });
+playBtn.onclick=()=>setPlaying(!playing);
+bigPlay.onclick=()=>setPlaying(true);
+$('restart').onclick=()=>{ seek(0); setPlaying(true); };
+voiceBtn.onclick=()=>{ voiceOn=!voiceOn; voiceBtn.textContent=voiceOn?'🔊 Voice on':'🔈 Voice off'; voiceBtn.classList.toggle('on',voiceOn); if(!voiceOn) stopVoice(); else capKey=null; };
+exBtn.onclick=()=>setExplore(!explore);
+$('fMode').onchange=e=>D.mode=e.target.value;
+$('fTO').onchange=e=>D.to=parseFloat(e.target.value);
+$('fRT').oninput=e=>{ D.rt=parseInt(e.target.value); $('fRTV').textContent=D.rt; };
+$('fBO').onchange=e=>D.bo=e.target.checked;
+$('fFB').onchange=e=>D.fb=e.target.checked;
+$('fL').oninput=e=>{ D.lam=parseInt(e.target.value); $('fLV').textContent=D.lam; };
+$('fReset').onclick=()=>drill.reset();
+$('bar').onclick=e=>{ setExplore(false); const r=$('bar').getBoundingClientRect(); seek((e.clientX-r.left)/r.width*TOTAL); };
+document.addEventListener('keydown',e=>{
+  if(['INPUT','SELECT'].includes(e.target.tagName)) return;
+  if(e.code==='Space'){ e.preventDefault(); setPlaying(!playing); }
+  if(e.code==='ArrowRight'){ const {i}=locate(T); if(i<S.length-1) seek(START[i+1]+.001); }
+  if(e.code==='ArrowLeft'){ const {i,lt}=locate(T); seek(START[lt<1.5&&i>0?i-1:i]+.001); }
+});
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

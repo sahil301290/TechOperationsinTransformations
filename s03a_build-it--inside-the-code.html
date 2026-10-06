@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inside the code · Build it</title>
+<meta name="video-id" content="s03a">
+<meta name="section" content="Build it">
+<style>
+  :root{--blue:#58C4DD;--yellow:#F7D96F;--grey:#8a8a8a}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0b0b0d;color:#e8e8e8;font-family:Georgia,'Times New Roman',serif;display:flex;justify-content:center;padding:24px 16px 40px;min-height:100vh}
+  .wrap{width:100%;max-width:1100px}
+  header{margin-bottom:16px;display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+  header h1{font-weight:normal;font-size:28px}
+  header h1 span{color:var(--blue)}
+  header p{color:var(--grey);font-style:italic;margin-top:4px;font-size:15px}
+  .ep{font-family:Consolas,monospace;font-size:12px;color:#666;border:1px solid #26262c;border-radius:999px;padding:4px 12px}
+  .stage{position:relative;background:#000;border-radius:12px;overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,.7),0 0 0 1px #1f1f24}
+  canvas{display:block;width:100%;height:auto;cursor:pointer}
+  #bigplay{position:absolute;inset:0;margin:auto;width:96px;height:96px;border-radius:50%;border:2px solid var(--blue);background:rgba(88,196,221,.08);color:var(--blue);font-size:36px;cursor:pointer;transition:transform .25s,background .25s;padding-left:6px}
+  #bigplay:hover{transform:scale(1.08);background:rgba(88,196,221,.18)}
+  .caption{min-height:70px;padding:16px 8px 6px;text-align:center;font-size:20px;line-height:1.45;color:#ddd}
+  .controls{display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap}
+  .controls button,.explore button{background:#16161a;border:1px solid #2a2a30;color:#ddd;border-radius:8px;height:38px;min-width:42px;padding:0 12px;font-size:15px;cursor:pointer;font-family:inherit;transition:border-color .2s,color .2s}
+  .controls button:hover,.explore button:hover{border-color:var(--blue);color:var(--blue)}
+  .controls button.on{border-color:var(--yellow);color:var(--yellow)}
+  .bar{position:relative;flex:1;min-width:160px;height:8px;background:#1c1c22;border-radius:6px;cursor:pointer}
+  .fill{position:absolute;left:0;top:0;bottom:0;background:var(--blue);border-radius:6px;width:0}
+  .tick{position:absolute;top:-3px;width:2px;height:14px;background:#444}
+  #time{font-family:Consolas,monospace;font-size:13px;color:var(--grey);min-width:92px;text-align:right}
+  .explore{display:none;flex-wrap:wrap;align-items:center;gap:12px 18px;margin-top:14px;padding:14px 16px;border:1px solid #2c2c33;border-radius:10px;background:#111115;font-family:Consolas,monospace;font-size:13px;color:#bbb}
+  .explore.show{display:flex}
+  .explore label{display:flex;align-items:center;gap:8px}
+  .explore input[type=text]{background:#0b0b0d;color:#eee;border:1px solid #33333b;border-radius:6px;padding:7px 10px;font-family:inherit;font-size:13px;width:330px}
+  .explore select{background:#0b0b0d;color:#eee;border:1px solid #33333b;border-radius:6px;padding:6px 8px;font-family:inherit;font-size:13px}
+  .explore input[type=range]{width:110px;accent-color:#F7D96F}
+  .explore b{color:var(--yellow);font-weight:normal;min-width:34px;display:inline-block}
+  .explore #exRun{border-color:var(--yellow);color:var(--yellow);margin-left:auto}
+  .chapters{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+  .chapters button{background:transparent;border:1px solid #26262c;color:#9a9a9a;border-radius:999px;padding:6px 14px;font-size:13px;cursor:pointer;font-family:Consolas,monospace;transition:all .2s}
+  .chapters button:hover{color:#fff;border-color:#555}
+  .chapters button.active{color:#000;background:var(--blue);border-color:var(--blue)}
+  .hint{color:#555;font-size:12px;margin-top:14px;font-family:Consolas,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Inside the <span>code</span></h1>
+      <p>train.py and app.py, line by line: what each line does, and where each status code comes from</p>
+    </div>
+    <span class="ep" style="color:#F7D96F;border-color:#3a3a2a">Section: Build it</span>
+  </header>
+  <div class="stage">
+    <canvas id="cv" aria-label="Animated explainer"></canvas>
+    <button id="bigplay" aria-label="Play">▶</button>
+  </div>
+  <div class="caption" id="cap" aria-live="polite"></div>
+  <div class="controls">
+    <button id="play" aria-label="Play or pause">▶</button>
+    <button id="restart" aria-label="Restart">↺</button>
+    <div class="bar" id="bar"><div class="fill" id="fill"></div></div>
+    <span id="time">0:00 / 0:00</span>
+    <button id="voice">🔈 Voice off</button>
+    <button id="exploreBtn">🔍 Trace it yourself</button>
+  </div>
+  <div class="explore" id="explorePanel">
+    <label>message <input type="text" id="exMsg" value="My laptop will not turn on"></label>
+    <label>test <select id="exCase">
+      <option value="normal">POST /predictions</option>
+      <option value="missing">no "message" field</option>
+      <option value="empty">empty message ""</option>
+      <option value="wrong">wrong address /predict</option>
+    </select></label>
+    <label>THRESHOLD <input type="range" id="exThr" min="0.3" max="0.9" step="0.05" value="0.6"> <b id="exThrV">0.60</b></label>
+    <button id="exRun">Run ▶</button>
+  </div>
+  <div class="chapters" id="chapters"></div>
+  <div class="hint">Space = play/pause · ← → = chapters · the numbers come from a JavaScript copy of the model, trained on 40 example tickets</div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const cv=$('cv'), ctx=cv.getContext('2d');
+const W=1280, H=720; let dpr=1;
+function resize(){ dpr=Math.min(window.devicePixelRatio||1,2); cv.width=W*dpr; cv.height=H*dpr; }
+resize(); addEventListener('resize', resize);
+
+const C={white:'#ECECEC',grey:'#7d7d7d',dim:'#444',blue:'#58C4DD',yellow:'#F7D96F',green:'#83C167',red:'#FC6255',teal:'#5CD0B3',purple:'#B189C6',orange:'#FF9A4D'};
+const CLASSES=['ESTATES','FINANCE','HR','IT'];
+const TEAM={FINANCE:C.yellow, IT:C.blue, ESTATES:C.orange, HR:C.purple};
+const SERIF='Georgia, "Times New Roman", serif', MONO='Consolas, "SFMono-Regular", "Liberation Mono", monospace';
+const clamp=(x,a=0,b=1)=>Math.max(a,Math.min(b,x));
+const smooth=x=>{x=clamp(x);return x*x*(3-2*x);};
+const P=(t,s,d)=>smooth((t-s)/d);
+const lerp=(a,b,p)=>a+(b-a)*p;
+
+/* ======================================================================
+   A JavaScript copy of the model (TF-IDF + logistic regression),
+   trained on the same 40 examples as Guide 1
+   ====================================================================== */
+const DATA=[
+["My expenses have not been reimbursed","FINANCE"],["My overtime payment is missing","FINANCE"],["This invoice is overdue","FINANCE"],
+["salary not come this month please check","FINANCE"],["I was paid the wrong amount this month","FINANCE"],["How do I claim travel costs","FINANCE"],
+["My payslip shows the wrong tax code","FINANCE"],["The supplier says we did not pay them","FINANCE"],["I need a purchase order for new equipment","FINANCE"],
+["My mileage claim was rejected","FINANCE"],["I cannot sign in to my staff account","IT"],["Reset my password please","IT"],["My laptop will not turn on","IT"],
+["Email is not working on my phone","IT"],["The printer says it is offline","IT"],["I cannot connect to the wifi","IT"],
+["My account is locked after too many attempts","IT"],["The patient record system is very slow","IT"],["I need access to the shared drive","IT"],
+["My screen is black and nothing happens","IT"],["How many days of parental leave do I get","HR"],["Annual leave question","HR"],
+["I want to change my working hours","HR"],["How do I report sickness absence","HR"],["I want to apply for flexible working","HR"],
+["Who do I talk to about a problem with my manager","HR"],["How do I book mandatory training","HR"],["I need a reference letter for a mortgage","HR"],
+["How much maternity pay will I get","HR"],["I want to resign what is the notice period","HR"],["The radiator on Ward 4 is leaking","ESTATES"],
+["Broken window in clinic 3","ESTATES"],["The lift is out of order","ESTATES"],["The lights in the corridor do not work","ESTATES"],
+["The toilet on the second floor is blocked","ESTATES"],["The car park barrier is stuck","ESTATES"],["It is too cold in the waiting room","ESTATES"],
+["There is water on the floor near the entrance","ESTATES"],["The door to the store room will not lock","ESTATES"],["A ceiling tile fell down in the office","ESTATES"]];
+const tok=s=>(s.toLowerCase().match(/\b\w\w+\b/g)||[]);
+const VOC={}; DATA.forEach(([m])=>tok(m).forEach(w=>{ if(!(w in VOC)) VOC[w]=Object.keys(VOC).length; }));
+const NV=Object.keys(VOC).length, ND=DATA.length;
+const DF=new Array(NV).fill(0); DATA.forEach(([m])=>new Set(tok(m)).forEach(w=>DF[VOC[w]]++));
+const IDF=DF.map(d=>Math.log((1+ND)/(1+d))+1);
+function vec(s){ const x=new Map(); tok(s).forEach(w=>{ if(w in VOC){ const j=VOC[w]; x.set(j,(x.get(j)||0)+1); } });
+  let n=0; x.forEach((c,j)=>{ const v=c*IDF[j]; x.set(j,v); n+=v*v; }); n=Math.sqrt(n)||1; x.forEach((v,j)=>x.set(j,v/n)); return x; }
+const WT=CLASSES.map(()=>new Float64Array(NV)), BI=new Float64Array(4);
+const scores=x=>CLASSES.map((_,k)=>{ let s=BI[k]; x.forEach((v,j)=>s+=WT[k][j]*v); return s; });
+const softmax=s=>{ const m=Math.max(...s), e=s.map(v=>Math.exp(v-m)), z=e.reduce((a,b)=>a+b,0); return e.map(v=>v/z); };
+(function train(){ const X=DATA.map(([m])=>vec(m)), Y=DATA.map(([,t])=>CLASSES.indexOf(t)), Creg=10, lr=.04;
+  for(let it=0;it<2500;it++){ const gW=CLASSES.map(()=>new Float64Array(NV)), gB=new Float64Array(4);
+    X.forEach((x,i)=>{ const p=softmax(scores(x)); for(let k=0;k<4;k++){ const d=p[k]-(Y[i]===k?1:0); gB[k]+=d; x.forEach((v,j)=>gW[k][j]+=d*v); } });
+    for(let k=0;k<4;k++){ for(let j=0;j<NV;j++) WT[k][j]-=lr*(gW[k][j]+WT[k][j]/Creg); BI[k]-=lr*gB[k]; } } })();
+const proba=s=>softmax(scores(vec(s)));
+const argmax=a=>a.indexOf(Math.max(...a));
+const pickMsg=(list,test)=>list.find(m=>test(Math.max(...proba(m))))||list[0];
+const MSG_SURE=pickMsg(['My expenses have not been reimbursed','My overtime payment is missing','Reset my password please'],c=>c>=.7);
+const MSG_UNSURE=pickMsg(['My access card isn’t working','Something is not working near my office','It is not working','card problem'],c=>c<.55);
+const PR_SURE=proba(MSG_SURE), PR_UNSURE=proba(MSG_UNSURE);
+
+/* ---------- drawing helpers ---------- */
+const fontStr=(size,font,style)=>[style,size+'px',font].filter(Boolean).join(' ');
+function txt(s,x,y,o={}){
+  const {size=28,color=C.white,align='center',alpha=1,font=SERIF,style='',p=1}=o;
+  if(alpha<=0||p<=0) return;
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.font=fontStr(size,font,style); ctx.fillStyle=color; ctx.textAlign=align; ctx.textBaseline='middle';
+  if(p<1){ const w=ctx.measureText(s).width, x0=align==='center'?x-w/2:align==='right'?x-w:x; ctx.beginPath(); ctx.rect(x0-4,y-size,(w+8)*p,size*2); ctx.clip(); }
+  ctx.fillText(s,x,y); ctx.restore();
+}
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function box(x,y,w,h,o={}){
+  const {stroke=C.white,fill=null,alpha=1,lw=2,r=10,p=1,dash=null}=o; if(alpha<=0||p<=0) return;
+  ctx.save(); ctx.globalAlpha*=alpha; rr(x,y,w,h,r); if(fill){ctx.fillStyle=fill;ctx.fill();}
+  const L=2*(w+h); if(p<1) ctx.setLineDash([L*p,L]); else if(dash) ctx.setLineDash(dash);
+  ctx.strokeStyle=stroke; ctx.lineWidth=lw; ctx.stroke(); ctx.restore();
+}
+function rect(x,y,w,h,color,alpha=1){ if(alpha<=0||w<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.fillStyle=color; ctx.fillRect(x,y,w,h); ctx.restore(); }
+function seg(x1,y1,x2,y2,o={}){
+  const {color=C.white,lw=2,alpha=1,p=1,dash=null}=o; if(p<=0||alpha<=0) return;
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.lineCap='round'; if(dash) ctx.setLineDash(dash);
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(lerp(x1,x2,p),lerp(y1,y2,p)); ctx.stroke(); ctx.restore();
+}
+function arrow(x1,y1,x2,y2,o={}){
+  const {color=C.white,p=1,alpha=1,lw=2.2,head=10}=o; if(p<=0||alpha<=0) return;
+  seg(x1,y1,x2,y2,{color,lw,alpha,p});
+  const x=lerp(x1,x2,p), y=lerp(y1,y2,p), a=Math.atan2(y2-y1,x2-x1);
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.fillStyle=color; ctx.beginPath(); ctx.moveTo(x,y);
+  ctx.lineTo(x-head*Math.cos(a-.4),y-head*Math.sin(a-.4)); ctx.lineTo(x-head*Math.cos(a+.4),y-head*Math.sin(a+.4)); ctx.closePath(); ctx.fill(); ctx.restore();
+}
+function dot(x,y,r,color,alpha=1){ if(alpha<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.fillStyle=color; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); ctx.restore(); }
+function tag(x,y,s,col,a,size=14){ if(a<=0) return; ctx.save(); ctx.font=fontStr(size,MONO,''); const w=ctx.measureText(s).width+20; ctx.restore();
+  box(x-w/2,y-size,w,size*2,{stroke:col,fill:'rgba(0,0,0,.92)',alpha:a,r:6}); txt(s,x,y,{size,font:MONO,color:col,alpha:a}); }
+function fileIcon(x,y,w,h,label,sub,col,a){ if(a<=0) return;
+  ctx.save(); ctx.globalAlpha*=a; ctx.strokeStyle=col; ctx.lineWidth=2; ctx.fillStyle='rgba(0,0,0,.92)';
+  ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+w-18,y); ctx.lineTo(x+w,y+18); ctx.lineTo(x+w,y+h); ctx.lineTo(x,y+h); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x+w-18,y); ctx.lineTo(x+w-18,y+18); ctx.lineTo(x+w,y+18); ctx.stroke(); ctx.restore();
+  txt(label,x+w/2,y+h/2-(sub?9:0),{size:15,font:MONO,color:col,alpha:a}); if(sub) txt(sub,x+w/2,y+h/2+14,{size:12,style:'italic',color:C.grey,alpha:a}); }
+const wrapMono=(s,n)=>{ const out=[]; let cur=''; s.split(' ').forEach(w=>{ if((cur+' '+w).trim().length>n){ out.push(cur); cur=w; } else cur=(cur+' '+w).trim(); }); if(cur) out.push(cur); return out; };
+
+/* ---------- code panel ---------- */
+const TRAIN_CODE=['import joblib','from sklearn.pipeline import make_pipeline','from sklearn.feature_extraction.text import TfidfVectorizer',
+ 'from sklearn.linear_model import LogisticRegression','','texts, teams = read_tickets("data/staff_tickets.csv")','',
+ 'pipeline = make_pipeline(','    TfidfVectorizer(),','    LogisticRegression(max_iter=1000),',')',
+ 'pipeline.fit(texts, teams)        # learn from examples','joblib.dump(pipeline, "model/router.joblib")'];
+const APP_CODE=['import joblib','from fastapi import FastAPI','from pydantic import BaseModel','',
+ 'THRESHOLD = 0.60','model = joblib.load("model/router.joblib")','app = FastAPI()','',
+ '@app.get("/")','def root():','    return {"status": "Harbourside router running"}','',
+ 'class Ticket(BaseModel):','    message: str','',
+ '@app.post("/predictions")','def predict(ticket: Ticket):','    probs = model.predict_proba([ticket.message])[0]','    best = probs.argmax()',
+ '    team = model.classes_[best]','    confidence = float(probs[best])','    if confidence < THRESHOLD:','        team = "HUMAN_REVIEW"',
+ '    return {"team": team,','            "confidence": round(confidence, 2),','            "human_review": team == "HUMAN_REVIEW"}'];
+const TOKRE=/(#.*$)|("[^"]*")|(@[\w.]+)|(\b(?:import|from|def|class|return|if)\b)|(\b\d+(?:\.\d+)?\b)/g;
+let CW=0;
+function codeLine(s,x,y,a){
+  if(!CW){ ctx.save(); ctx.font=fontStr(16,MONO,''); CW=ctx.measureText('M').width; ctx.restore(); }
+  const segs=[]; let last=0, m; TOKRE.lastIndex=0;
+  while((m=TOKRE.exec(s))){ if(m.index>last) segs.push([s.slice(last,m.index),C.white]);
+    segs.push([m[0],m[1]?C.grey:m[2]?C.green:m[3]?C.yellow:m[4]?C.purple:C.orange]); last=m.index+m[0].length; if(m[0]==='') TOKRE.lastIndex++; }
+  if(last<s.length) segs.push([s.slice(last),C.white]);
+  let col=0; segs.forEach(([t,c])=>{ txt(t,x+col*CW,y,{size:16,font:MONO,color:c,align:'left',alpha:a}); col+=t.length; });
+}
+function drawCode(code,name,o={}){
+  const {a=1,hl=[],marks={},focus=false}=o; if(a<=0) return;
+  box(30,80,740,600,{stroke:'#2a2a32',fill:'rgba(14,14,18,.96)',alpha:a});
+  box(30,48,150,36,{stroke:'#2a2a32',fill:'rgba(14,14,18,.96)',alpha:a,r:6});
+  txt(name,105,66,{size:15,font:MONO,color:C.blue,alpha:a});
+  code.forEach((s,i)=>{ const y=112+i*21.5, on=hl.includes(i), mk=marks[i];
+    if(on||mk){ rect(32,y-10.5,736,21,mk||C.yellow,a*.15); rect(32,y-10.5,4,21,mk||C.yellow,a); }
+    txt(String(i+1),62,y,{size:12,font:MONO,color:'#4a4a4a',align:'right',alpha:a});
+    codeLine(s,76,y,a*(focus&&!on&&!mk?.32:1)); });
+}
+const hlAt=(t,ws)=>{ let r=[]; ws.forEach(([s,l])=>{ if(t>=s) r=l; }); return r; };
+
+/* ---------- variables panel for predict() ---------- */
+function traceVars(msg,pr,upto,y0,thr,a=1){
+  if(a<=0) return;
+  const best=argmax(pr), conf=pr[best], low=conf<thr, team=low?'HUMAN_REVIEW':CLASSES[best];
+  const lines=wrapMono(`message = "${msg}"`,46);
+  lines.slice(0,2).forEach((l,i)=>txt(l,800,y0+i*20,{size:14,font:MONO,color:C.green,align:'left',alpha:a}));
+  if(upto>=0){ txt('probs =',800,y0+50,{size:14,font:MONO,align:'left',alpha:a});
+    CLASSES.forEach((k,i)=>{ const y=y0+76+i*26, on=upto>=1&&i===best;
+      txt(`[${i}] ${k}`,812,y,{size:13,font:MONO,color:TEAM[k],align:'left',alpha:a});
+      rect(930,y-8,220*pr[i],16,TEAM[k],a*.85); txt(pr[i].toFixed(2),930+220*pr[i]+8,y,{size:13,font:MONO,align:'left',alpha:a,color:on?C.white:C.grey});
+      if(on) box(805,y-12,430,24,{stroke:C.yellow,alpha:a,r:5}); }); }
+  const row=(k,s,col,yy)=>{ if(upto>=k) txt(s,800,y0+yy,{size:15,font:MONO,color:col,align:'left',alpha:a}); };
+  row(1,`best = ${best}`,C.white,192);
+  row(2,`team = "${CLASSES[best]}"`,TEAM[CLASSES[best]],220);
+  row(3,`confidence = ${conf.toFixed(2)}`,C.white,248);
+  row(4,`${conf.toFixed(2)} < ${thr.toFixed(2)} ?  →  ${low?'True':'False'}`,low?C.yellow:C.green,276);
+  if(upto>=5) txt(low?'team = "HUMAN_REVIEW"':'(line skipped)',800,y0+304,{size:15,font:MONO,color:low?C.yellow:C.grey,align:'left',alpha:a,style:low?'':'italic'});
+  if(upto>=6){ box(795,y0+326,445,92,{stroke:C.green,fill:'rgba(0,0,0,.9)',alpha:a});
+    txt(`{"team": "${team}",`,812,y0+348,{size:14,font:MONO,color:C.green,align:'left',alpha:a});
+    txt(` "confidence": ${conf.toFixed(2)},`,812,y0+371,{size:14,font:MONO,color:C.green,align:'left',alpha:a});
+    txt(` "human_review": ${low?'true':'false'}}`,812,y0+394,{size:14,font:MONO,color:C.green,align:'left',alpha:a}); }
+}
+const TRACE_LINES=[[17],[18],[19],[20],[21],[22],[23,24,25]];
+
+/* ======================================================================
+   SCENES
+   ====================================================================== */
+const S=[
+/* 1 ─ Two files, two moments */
+{title:'Two files, two moments',dur:22,
+ caps:[[0,"Our routing service is built from two small files. Each one runs at a different moment."],
+       [5.5,"train.py runs once, or whenever we retrain. It learns from examples and saves a model file."],
+       [12,"app.py runs all the time. It loads that file, then answers every request that arrives."],
+       [18,"Let's read both, line by line."]],
+ draw(t){
+   txt('SECTION · BUILD IT',640,110,{size:15,font:MONO,color:C.yellow,alpha:P(t,.2,.8)*(1-P(t,5,.6))});
+   const a1=P(t,5.6,.7), a2=P(t,12.1,.7);
+   box(120,150,330,200,{stroke:C.teal,lw:2.5,alpha:a1,p:a1}); txt('train.py',285,200,{size:30,font:MONO,color:C.teal,alpha:a1});
+   txt('runs once · learns · saves',285,250,{size:18,style:'italic',alpha:a1}); txt('fit()',285,300,{size:20,font:MONO,color:C.grey,alpha:a1});
+   fileIcon(560,205,160,90,'router.joblib','the model',C.white,P(t,8.5,.6));
+   arrow(452,250,556,250,{p:P(t,8,.6)}); arrow(724,250,826,250,{p:P(t,12.6,.6)});
+   box(830,150,330,200,{stroke:C.blue,lw:2.5,alpha:a2,p:a2}); txt('app.py',995,200,{size:30,font:MONO,color:C.blue,alpha:a2});
+   txt('runs all day · loads · answers',995,250,{size:18,style:'italic',alpha:a2}); txt('predict()',995,300,{size:20,font:MONO,color:C.grey,alpha:a2});
+   const ta=P(t,1,.8);
+   arrow(100,470,1190,470,{color:C.grey,p:ta,lw:1.8}); txt('time',1190,495,{size:15,style:'italic',color:C.grey,align:'right',alpha:ta});
+   rect(160,450,140,40,C.teal,.7*a1); txt('training',230,515,{size:15,font:MONO,color:C.teal,alpha:a1});
+   for(let k=0;k<55;k++){ const x=600+k*10.5; seg(x,455,x,485,{color:C.blue,lw:2,alpha:P(t,13+k*.06,.2)}); }
+   txt('every request',890,515,{size:15,font:MONO,color:C.blue,alpha:a2});
+   txt('Let’s read them line by line',640,610,{size:34,color:C.yellow,p:P(t,18.2,1.6)});
+ }},
+
+/* 2 ─ train.py */
+{title:'train.py',dur:40,
+ caps:[[0,"First, train.py. These first lines just bring in the tools we need."],
+       [5,"This line reads the spreadsheet of past tickets: a list of messages, and a list of the right teams."],
+       [13,"Then we build a pipeline: two steps joined together. TF-IDF turns words into numbers. Logistic regression weighs them."],
+       [22,"fit is where learning happens. The pipeline studies every example and adjusts its weights."],
+       [29,"Finally, dump saves everything into one file. That file is the model."],
+       [35,"One file, one pipeline: so the model can take raw text straight in."]],
+ draw(t){
+   drawCode(TRAIN_CODE,'train.py',{a:P(t,.2,.6),hl:hlAt(t,[[0,[0,1,2,3]],[5,[5]],[13,[7,8,9,10]],[22,[11]],[29,[12]],[35,[7,8,9,10,11,12]]]),focus:true});
+   txt('read_tickets() is simplified here: the real train.py reads the CSV with a short loop',50,660,{size:12,font:MONO,color:'#555',align:'left'});
+   const aT=P(t,5.3,.6)*(1-P(t,12.5,.5));
+   if(aT>0){ txt('staff_tickets.csv',1020,130,{size:15,font:MONO,color:C.grey,alpha:aT});
+     [['My expenses have not been…','FINANCE'],['Reset my password please','IT'],['Annual leave question','HR'],['Broken window in clinic 3','ESTATES']].forEach(([m,k],i)=>{
+       const y=165+i*30; box(800,y-14,440,28,{stroke:'#2c2c33',alpha:aT,r:4}); txt(m,812,y,{size:13,font:MONO,align:'left',alpha:aT}); txt(k,1228,y,{size:13,font:MONO,color:TEAM[k],align:'right',alpha:aT}); });
+     arrow(1020,295,1020,325,{alpha:aT});
+     txt('texts = ["My expenses…", "Reset my…", …]',800,355,{size:14,font:MONO,color:C.green,align:'left',alpha:aT,p:P(t,7.5,1.2)});
+     txt('teams = ["FINANCE", "IT", "HR", …]',800,385,{size:14,font:MONO,color:C.yellow,align:'left',alpha:aT,p:P(t,8.5,1.2)});
+     txt('40 messages · 40 answers',1020,430,{size:15,style:'italic',color:C.grey,alpha:aT}); }
+   const aP=P(t,13.2,.6);
+   box(840,170,360,70,{stroke:C.teal,alpha:aP}); txt('TfidfVectorizer()',1020,195,{size:16,font:MONO,color:C.teal,alpha:aP}); txt('words → numbers',1020,220,{size:14,style:'italic',color:C.grey,alpha:aP});
+   arrow(1020,242,1020,282,{alpha:aP});
+   box(840,285,360,70,{stroke:C.purple,alpha:aP}); txt('LogisticRegression()',1020,310,{size:16,font:MONO,color:C.purple,alpha:aP}); txt('weigh the evidence',1020,335,{size:14,style:'italic',color:C.grey,alpha:aP});
+   box(820,150,400,225,{stroke:'#3a3a44',alpha:aP*.9,dash:[6,5]}); txt('pipeline',1210,140,{size:13,font:MONO,color:C.grey,align:'right',alpha:aP});
+   const aF=P(t,22.2,.6);
+   if(aF>0){ for(let i=0;i<14;i++){ const u=((t-22.4)*.7+i/14)%1; if(t>22.4) dot(1020+(i%5-2)*24,lerp(110,165,u),4,TEAM[CLASSES[i%4]],aF*(1-u)*(1-P(t,28.6,.5))); }
+     const settle=P(t,23,4.5);
+     for(let k=0;k<4;k++) for(let j=0;j<10;j++){ const fin=Math.sin(k*3.1+j*1.7)*.5+.5, r=Math.abs(Math.sin(t*5+k+j*2)); const v=lerp(r,fin,settle);
+       rect(850+j*34,395+k*20,28,14,TEAM[CLASSES[k]],aF*(.15+.75*v)); }
+     txt(settle>.95?'weights settled ✓':'adjusting weights…',1020,490,{size:15,font:MONO,color:settle>.95?C.green:C.yellow,alpha:aF}); }
+   fileIcon(930,525,180,80,'router.joblib','TF-IDF + weights, together',C.white,P(t,29.2,.6));
+   arrow(1020,500,1020,522,{alpha:P(t,29.2,.6)});
+   tag(1020,640,'raw text in → team out',C.green,P(t,35.2,.6),15);
+ }},
+
+/* 3 ─ app.py starts up */
+{title:'app.py starts up',dur:30,
+ caps:[[0,"Now app.py. When the server starts, the top of the file runs once."],
+       [5,"THRESHOLD is our rule for “not sure”. It was agreed with the service desk."],
+       [10.5,"This line loads the model file into memory, once, at start-up. Not once per request."],
+       [17.5,"And this line creates the web application itself."],
+       [21,"If the model file fails to load, the server can't start. In the cloud version, that becomes a 503."]],
+ draw(t){
+   drawCode(APP_CODE,'app.py',{a:P(t,.2,.6),hl:hlAt(t,[[0,[0,1,2,4,5,6]],[5,[4]],[10.5,[5]],[17.5,[6]],[21,[5]]]),focus:true});
+   tag(1020,120,'THRESHOLD = 0.60 · agreed with the desk',C.yellow,P(t,5.2,.6),14);
+   const aL=P(t,10.7,.6);
+   fileIcon(940,165,160,70,'router.joblib','on disk',C.white,aL);
+   arrow(1020,240,1020,300,{p:P(t,11.4,.7)}); txt('joblib.load · once, at start-up',1032,270,{size:13,font:MONO,color:C.grey,align:'left',alpha:P(t,11.8,.5)});
+   box(820,305,400,80,{stroke:C.teal,lw:2.5,alpha:P(t,12.2,.6)}); txt('model (in memory)',1020,335,{size:18,color:C.teal,alpha:P(t,12.2,.6)});
+   txt('ready for every request',1020,360,{size:13,style:'italic',color:C.grey,alpha:P(t,12.2,.6)});
+   for(let k=0;k<5;k++) arrow(1240,420+k*12,1180-k*30,388,{color:C.blue,lw:1.4,p:P(t,13.5+k*.3,.5),alpha:.8});
+   txt('request 1, 2, 3, 4, 5 … all reuse it',1020,490,{size:14,font:MONO,color:C.blue,alpha:P(t,14.5,.6)});
+   box(820,520,400,56,{stroke:C.white,alpha:P(t,17.7,.6)}); txt('app · the web application',1020,548,{size:16,font:MONO,alpha:P(t,17.7,.6)});
+   txt('✗ file missing → the server cannot start',1020,612,{size:16,color:C.red,alpha:P(t,21.2,.6)});
+   txt('cloud version: it starts, and answers 503',1020,640,{size:13,font:MONO,color:C.grey,alpha:P(t,23,.6)});
+ }},
+
+/* 4 ─ Decorators */
+{title:'Decorators: the address book',dur:27,
+ caps:[[0,"The at-sign line is a decorator. It tells FastAPI: when a GET request arrives for this address, run the function below."],
+       [8.5,"So GET / calls root. Whatever root returns, FastAPI sends back as JSON."],
+       [15,"Every endpoint gets its own decorator. Together, they are the API's menu."],
+       [20.5,"A request for an address with no decorator matches nothing. That is a 404."]],
+ draw(t){
+   const hl=hlAt(t,[[0,[8]],[8.5,[8,9,10]],[15,[8,15]],[20.5,[8,15]]]);
+   const marks=t>=20.5?{8:C.orange,15:C.orange}:{};
+   drawCode(APP_CODE,'app.py',{a:P(t,.2,.6),hl,marks,focus:true});
+   const aR=P(t,.8,.6), miss=t>=21.6;
+   box(800,130,440,140,{stroke:miss?C.orange:'#3a3a44',alpha:aR}); txt('FastAPI routing table',1020,155,{size:15,font:MONO,color:C.grey,alpha:aR});
+   const r1=t>=9.6&&t<14?C.green:C.white;
+   txt('GET   /             →  root()',820,200,{size:15,font:MONO,color:r1,align:'left',alpha:aR});
+   txt('POST  /predictions  →  predict()',820,235,{size:15,font:MONO,align:'left',alpha:P(t,15.2,.6)});
+   tag(1020,320,'request: GET /',C.blue,P(t,8.6,.5)*(1-P(t,20,.4)),15); arrow(1020,302,1020,262,{color:C.blue,p:P(t,9,.6),alpha:1-P(t,20,.4)});
+   tag(1020,395,'{"status": "Harbourside router running"}',C.green,P(t,10.6,.5)*(1-P(t,20,.4)),13);
+   txt('a Python dict, sent back as JSON automatically',1020,430,{size:13,style:'italic',color:C.grey,alpha:P(t,11.4,.5)*(1-P(t,20,.4))});
+   tag(1020,320,'request: GET /predict',C.orange,P(t,20.6,.5),15); arrow(1020,302,1020,262,{color:C.orange,p:P(t,21,.6)});
+   tag(1020,400,'no match → 404 Not found',C.orange,P(t,21.8,.5),16);
+   txt('a typo in the address is enough',1020,440,{size:14,style:'italic',color:C.grey,alpha:P(t,22.6,.5)});
+ }},
+
+/* 5 ─ Ticket */
+{title:'Ticket: the shape of a request',dur:30,
+ caps:[[0,"Next, the Ticket class. It describes what a valid request must look like: one field, called message, which must be text."],
+       [8.5,"The POST decorator connects /predictions to the predict function. And predict asks for a Ticket."],
+       [14.5,"So before our code runs, FastAPI checks the JSON against Ticket. If it fits, we get a ticket object."],
+       [22,"If the message field is missing, FastAPI refuses with 422, and our function never even starts."]],
+ draw(t){
+   drawCode(APP_CODE,'app.py',{a:P(t,.2,.6),hl:hlAt(t,[[0,[12,13]],[8.5,[15,16]],[14.5,[12,13,16]],[22,[12,13]]]),marks:t>=22?{12:C.orange,13:C.orange}:{},focus:true});
+   const bad=t>=22, a=P(t,14.6,.6);
+   tag(1020,150,bad?'{ }':'{"message": "My overtime payment is missing"}',bad?C.orange:C.blue,a,13);
+   txt('request body (JSON)',1020,118,{size:13,style:'italic',color:C.grey,alpha:a});
+   arrow(1020,172,1020,232,{color:bad?C.orange:C.blue,p:P(t,bad?22.4:15.2,.6)});
+   box(860,235,320,70,{stroke:bad?C.red:C.green,lw:2.5,alpha:a}); txt('Ticket check',1020,258,{size:17,alpha:a});
+   txt(bad?'message: missing ✗':'message: str ✓',1020,284,{size:15,font:MONO,color:bad?C.red:C.green,alpha:a});
+   const okA=P(t,16.4,.6)*(1-P(t,21.6,.4));
+   arrow(1020,307,1020,357,{color:C.green,alpha:okA});
+   box(820,360,400,70,{stroke:C.green,alpha:okA}); txt('ticket (a Ticket object)',1020,383,{size:16,alpha:okA});
+   txt('ticket.message = "My overtime…"',1020,408,{size:14,font:MONO,color:C.green,alpha:okA});
+   txt('→ predict(ticket) runs',1020,460,{size:16,font:MONO,color:C.green,alpha:P(t,17.6,.6)*(1-P(t,21.6,.4))});
+   tag(1020,370,'422 Unprocessable',C.orange,P(t,23,.5),18);
+   txt('predict() never runs',1020,420,{size:17,color:C.orange,alpha:P(t,23.8,.5)});
+   txt('the check is automatic: you wrote no if-statement for it',1020,470,{size:14,style:'italic',color:C.grey,alpha:P(t,25,.6)});
+ }},
+
+/* 6 ─ predict(), line by line */
+{title:'One message, line by line',dur:44,
+ caps:[[0,"Now follow one message through predict, one line at a time. Watch the values on the right."],
+       [5.5,"predict_proba gives one probability per team. The square brackets wrap our one message in a list, and the zero takes the first row back out."],
+       [15,"argmax finds the position of the biggest probability."],
+       [19.5,"classes_ turns that position into a team name. The teams are in alphabetical order."],
+       [25,"confidence is that biggest probability, as a plain number."],
+       [29,"Is it below the threshold? No. So this line is skipped."],
+       [33.5,"Finally, return builds a dictionary, and FastAPI turns it into the JSON reply."],
+       [39,"Seven lines. That is the whole decision."]],
+ draw(t){
+   const times=[5.5,15,19.5,25,29,31,33.5];
+   let upto=-1; times.forEach((s,i)=>{ if(t>=s) upto=i; });
+   const hl=t>=39?[17,18,19,20,21,22,23,24,25]:upto>=0?TRACE_LINES[upto]:[16];
+   const marks=upto===5?{22:'#555'}:{};
+   drawCode(APP_CODE,'app.py',{a:P(t,.2,.6),hl,marks,focus:true});
+   tag(1020,110,'POST /predictions',C.blue,P(t,.6,.5),14);
+   traceVars(MSG_SURE,PR_SURE,upto,150,.6,P(t,.8,.6));
+   txt('[ … ][0]: one message in, one row out',1020,640,{size:13,font:MONO,color:C.grey,alpha:P(t,10,.6)*(1-P(t,14.6,.4))});
+ }},
+
+/* 7 ─ The unsure message */
+{title:'The unsure message',dur:25,
+ caps:[[0,"Same code, a vaguer message."],
+       [3,"The probabilities are much closer together. No team clearly wins."],
+       [8,"The top team still has the highest probability, but it is below 0.60."],
+       [13.5,"This time the if is true, so team becomes HUMAN_REVIEW. A person will read this ticket."],
+       [20.5,"Two lines of code are the plan for “not sure”."]],
+ draw(t){
+   const times=[3,8.2,9.2,10.2,13.6,15.4,17.4];
+   let upto=-1; times.forEach((s,i)=>{ if(t>=s) upto=i; });
+   const hl=t>=20.5?[21,22]:upto>=0?TRACE_LINES[upto]:[16];
+   drawCode(APP_CODE,'app.py',{a:P(t,.2,.6),hl,focus:true,marks:t>=20.5?{21:C.yellow,22:C.yellow}:{}});
+   tag(1020,110,'POST /predictions',C.blue,P(t,.4,.5),14);
+   traceVars(MSG_UNSURE,PR_UNSURE,upto,150,.6,P(t,.6,.6));
+   tag(1020,640,'the plan for “not sure”: lines 22–23',C.yellow,P(t,20.7,.6),14);
+ }},
+
+/* 8 ─ Where each status code comes from */
+{title:'Where each code comes from',dur:33,
+ caps:[[0,"Now the break-it tests make sense. Each status code comes from a specific place."],
+       [5.5,"200 comes from our return line: it worked."],
+       [9,"422 comes from the Ticket check, before predict even runs."],
+       [13.5,"An empty message passes the check, because empty text is still text. So you get 200, with a useless answer."],
+       [21,"404 means no decorator matched the address."],
+       [25,"401 and 503 come from the cloud version: a key check, and a model that failed to load."]],
+ draw(t){
+   const hl=hlAt(t,[[0,[]],[5.5,[23,24,25]],[9,[12,13]],[13.5,[13]],[21,[8,15]],[25,[]]]);
+   drawCode(APP_CODE,'app.py',{a:P(t,.2,.6),hl,focus:t>=5.5&&t<25});
+   const rows=[[5.6,'200','the return line (24–26)',C.green],[9.1,'422','the Ticket check (13–14)',C.orange],[13.6,'200 (!)','"" is still text: valid but useless',C.yellow],
+               [21.1,'404','no decorator matched (9, 16)',C.orange],[25.1,'401 · 503','added in the cloud version',C.red]];
+   rows.forEach(([s,code,d,col],i)=>{ const y=130+i*70, a=P(t,s,.5);
+     box(800,y-24,120,48,{stroke:col,fill:'rgba(0,0,0,.92)',alpha:a}); txt(code,860,y,{size:code.length>5?15:20,font:MONO,color:col,alpha:a});
+     txt(d,935,y,{size:15,align:'left',alpha:a}); });
+   txt('fix: message: str = Field(min_length=1)',935,228,{size:13,font:MONO,color:C.yellow,align:'left',alpha:P(t,17,.6)});
+   const cA=P(t,26,.6);
+   box(800,480,440,110,{stroke:'#3a3a44',fill:'rgba(14,14,18,.96)',alpha:cA});
+   txt('# cloud version',815,505,{size:13,font:MONO,color:C.grey,align:'left',alpha:cA});
+   txt('if key != API_KEY:  raise HTTPException(401)',815,535,{size:13,font:MONO,color:C.white,align:'left',alpha:cA});
+   txt('if model is None:   raise HTTPException(503)',815,562,{size:13,font:MONO,color:C.white,align:'left',alpha:cA});
+ }},
+
+/* 9 ─ Recap */
+{title:'Recap',dur:27,
+ caps:[[0,"Let's put it together."],
+       [2,"One. train.py learns once and saves a file. app.py loads it once and uses it for every request."],
+       [8.5,"Two. Decorators map addresses to functions. No match: 404."],
+       [13,"Three. Ticket checks the request before your code runs. No message: 422."],
+       [18,"Four. Seven lines turn probabilities into a team, or into HUMAN_REVIEW."],
+       [23.5,"Go deeper: why the model can be unsure, how a request travels, and what changes when this code moves to the cloud."]],
+ draw(t){
+   txt('Inside the code',640,105,{size:46,p:P(t,.2,1.5)});
+   const L=[["train.py learns once and saves a file. app.py loads it once.",2.1],
+            ["Decorators map addresses to functions. No match → 404.",8.6],
+            ["Ticket checks the request before your code runs. No message → 422.",13.1],
+            ["Seven lines turn probabilities into a team, or HUMAN_REVIEW.",18.1]];
+   L.forEach(([s,t0],i)=>{ const y=225+i*95;
+     txt(String(i+1),150,y,{size:40,color:C.blue,alpha:P(t,t0,.6)});
+     txt(s,205,y,{size:25,align:'left',p:P(t,t0+.2,1.6)}); });
+   txt('Go deeper',640,622,{size:16,font:MONO,color:C.grey,alpha:P(t,23.7,1)});
+   txt('How sure is sure? · The journey of a request · Same code, new home',640,655,{size:18,font:MONO,color:C.yellow,alpha:P(t,24.3,1)});
+ }}
+];
+
+/* ======================================================================
+   EXPLORE: trace it yourself
+   ====================================================================== */
+let EX=null;
+function buildTrace(){
+  const msg=$('exMsg').value.trim(), kase=$('exCase').value, thr=parseFloat($('exThr').value);
+  const text=kase==='empty'?'':(msg||'My laptop will not turn on');
+  const steps=[];
+  if(kase==='wrong'){ steps.push({lines:[8,15],marks:{8:C.orange,15:C.orange},say:'POST /predict matches no decorator.',col:C.orange,end:'404'}); }
+  else {
+    steps.push({lines:[15,16],say:'POST /predictions matches @app.post → predict()',col:C.green});
+    if(kase==='missing') steps.push({lines:[12,13],marks:{12:C.orange,13:C.orange},say:'No "message" field → FastAPI replies 422. predict() never runs.',col:C.orange,end:'422'});
+    else {
+      steps.push({lines:[12,13],say:kase==='empty'?'Ticket check: "" is still text ✓ (valid, but empty)':'Ticket check: message is text ✓',col:kase==='empty'?C.yellow:C.green});
+      const pr=proba(text), low=Math.max(...pr)<thr;
+      for(let u=0;u<=6;u++){ if(u===5&&!low){ steps.push({lines:[],marks:{22:'#555'},upto:5,say:'Condition is False: line 23 is skipped',col:C.grey}); continue; }
+        steps.push({lines:TRACE_LINES[u],upto:u,say:['predict_proba → one probability per team','argmax → position of the biggest','classes_[best] → team name','float(...) → confidence','compare with THRESHOLD','team becomes HUMAN_REVIEW','return → JSON reply'][u],col:C.white}); }
+      steps.push({lines:[23,24,25],upto:6,say:kase==='empty'?'200 (!): the shape was valid, the answer is useless':'200 OK',col:kase==='empty'?C.yellow:C.green,end:kase==='empty'?'200 (!)':'200'});
+      EX={steps,t0:performance.now()/1000,text,thr,pr,kase}; return;
+    }
+  }
+  EX={steps,t0:performance.now()/1000,text,thr,pr:null,kase};
+}
+function renderExplore(){
+  txt('TRACE IT YOURSELF · type a message, choose a test, press Run',40,30,{size:14,font:MONO,color:C.yellow,align:'left'});
+  if(!EX){ drawCode(APP_CODE,'app.py',{}); txt('Choose a test below and press Run ▶',1020,360,{size:20,style:'italic',color:C.grey}); return; }
+  const el=performance.now()/1000-EX.t0, k=Math.min(EX.steps.length-1,Math.floor(el/1.3)), st=EX.steps[k];
+  drawCode(APP_CODE,'app.py',{hl:st.lines,marks:st.marks||{},focus:true});
+  const body=EX.kase==='missing'?'{ }':EX.kase==='empty'?'{"message": ""}':`{"message": "${EX.text.length>34?EX.text.slice(0,33)+'…':EX.text}"}`;
+  tag(1020,92,(EX.kase==='wrong'?'POST /predict  ':'POST /predictions  ')+body,C.blue,1,12);
+  txt(st.say,1020,128,{size:15,color:st.col});
+  let upto=-1; for(let i=0;i<=k;i++) if(EX.steps[i].upto!=null) upto=Math.max(upto,EX.steps[i].upto);
+  if(EX.pr) traceVars(EX.text||'',EX.pr,upto,165,EX.thr,1);
+  if(st.end) tag(1020,EX.pr?605:300,'status '+st.end,codeCol(st.end),P(el,k*1.3,.4),20);
+  if(EX.pr&&EX.text){ const words=tok(EX.text);
+    txt('words the model knows:',800,650,{size:12,font:MONO,color:C.grey,align:'left'});
+    let x=800; words.slice(0,10).forEach(w=>{ const known=w in VOC; const s=w+' ';
+      txt(s,x,672,{size:13,font:MONO,color:known?C.white:'#555',align:'left'}); ctx.save(); ctx.font=fontStr(13,MONO,''); x+=ctx.measureText(s).width; ctx.restore(); });
+    txt('grey = never seen in training',800,694,{size:11,font:MONO,color:'#555',align:'left'}); }
+}
+const codeCol=c=>c.startsWith('2')?(c.includes('!')?C.yellow:C.green):c.startsWith('4')?C.orange:C.red;
+
+/* ======================================================================
+   PLAYER
+   ====================================================================== */
+const START=[]; let TOTAL=0; S.forEach(s=>{START.push(TOTAL); TOTAL+=s.dur;});
+let T=0, playing=false, lastTs=null, voiceOn=false, capKey=null, explore=false, frameDt=0;
+const capEl=$('cap'), fillEl=$('fill'), timeEl=$('time'), playBtn=$('play'), bigPlay=$('bigplay'), voiceBtn=$('voice'), exBtn=$('exploreBtn');
+S.forEach((s,i)=>{
+  if(i>0){ const tk=document.createElement('div'); tk.className='tick'; tk.style.left=(START[i]/TOTAL*100)+'%'; $('bar').appendChild(tk); }
+  const b=document.createElement('button'); b.textContent=`${i+1} · ${s.title}`;
+  b.onclick=()=>{ setExplore(false); seek(START[i]+.001); if(!playing) setPlaying(true); };
+  $('chapters').appendChild(b);
+});
+const chapBtns=[...$('chapters').children];
+const locate=time=>{ for(let i=S.length-1;i>=0;i--) if(time>=START[i]) return {i,lt:Math.min(time-START[i],S[i].dur)}; return {i:0,lt:0}; };
+const fmt=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+
+/* ---------- NARRATOR: every word is spoken before the video moves on ---------- */
+const SAY=[[/“|”|"/g,''],[/TF-IDF/g,'T F I D F'],[/\b2xx\b/g,'two hundreds'],[/\b4xx\b/g,'four hundreds'],[/\b5xx\b/g,'five hundreds'],
+  [/HUMAN_REVIEW/g,'human review'],[/\bFINANCE\b/g,'Finance'],[/\bESTATES\b/g,'Estates'],[/\bIT\b/g,'I T'],[/\bHR\b/g,'H R'],
+  [/\bCCIO\b/g,'C C I O'],[/(\d{2}):(\d{2})/g,(m,h,mi)=>`${+h} ${mi==='00'?"o'clock":mi}`],[/7f3a/g,'7 F 3 A'],
+  [/train\.py/g,'train dot pie'],[/app\.py/g,'app dot pie'],[/predict_proba/g,'predict proba'],[/classes_/g,'classes'],[/argmax/g,'arg max'],[/\//g,' slash ']];
+const NAR={u:null,speaking:false,until:0,voice:null,list:[]};
+const HOLDS=[]; S.forEach((s,i)=>{ s.caps.forEach((c,k)=>{ if(k>0) HOLDS.push(START[i]+c[0]-.02); }); HOLDS.push(START[i]+s.dur-.6); }); HOLDS.sort((a,b)=>a-b);
+const vSel=document.createElement('select'); vSel.title='Narrator voice';
+vSel.style.cssText='background:#16161a;border:1px solid #2a2a30;color:#ddd;border-radius:8px;height:38px;padding:0 8px;font-family:inherit;font-size:13px;max-width:200px';
+voiceBtn.after(vSel);
+const vNorm=l=>(l||'').replace('_','-');
+const vRank=v=>{ const l=vNorm(v.lang); return /^en-GB/i.test(l)?0:/^en-US/i.test(l)?1:/^en/i.test(l)?2:9; };
+const vGood=v=>/natural|online|google|neural|premium|enhanced/i.test(v.name)?1:0;
+const vName=v=>v.name.replace(/^(Microsoft|Google|Apple) /,'').replace(/\s*-\s*English.*$/,'').slice(0,34);
+function pickVoices(){
+  if(!('speechSynthesis' in window)) return;
+  const vs=speechSynthesis.getVoices().filter(v=>vRank(v)<9).sort((a,b)=>vRank(a)-vRank(b)||vGood(b)-vGood(a));
+  if(!vs.length) return;
+  NAR.list=vs; vSel.innerHTML='';
+  const label={0:'🇬🇧 UK English',1:'🇺🇸 US English',2:'Other English'}; let g=null, og=null;
+  vs.forEach((v,i)=>{
+    const r=vRank(v);
+    if(r!==g){ g=r; og=document.createElement('optgroup'); og.label=label[r]; vSel.appendChild(og); }
+    const o=document.createElement('option'); o.value=i; o.textContent=vName(v)+' · '+vNorm(v.lang); og.appendChild(o);
+  });
+  if(!vs.some(v=>vRank(v)===0)){
+    const og2=document.createElement('optgroup'); og2.label='No UK voice on this device';
+    const o=document.createElement('option'); o.value='help'; o.textContent='➕ How to add a UK English voice'; og2.appendChild(o); vSel.appendChild(og2);
+  }
+  const cur=NAR.voice?vs.findIndex(v=>v.name===NAR.voice.name):-1, i=cur>=0?cur:0;
+  vSel.value=String(i); NAR.voice=vs[i];
+}
+if('speechSynthesis' in window){ speechSynthesis.onvoiceschanged=pickVoices; pickVoices(); [300,1200,3500].forEach(ms=>setTimeout(pickVoices,ms)); }
+else vSel.style.display='none';
+vSel.onchange=()=>{
+  if(vSel.value==='help'){
+    capEl.textContent='To add a UK voice — Windows: Settings → Time & language → Speech → Add voices → English (United Kingdom). Mac: System Settings → Accessibility → Spoken Content → System voice → Manage Voices → English (UK). Or open this page in Microsoft Edge or Google Chrome, which include free UK voices. Then reload the page.';
+    vSel.value=String(Math.max(0,NAR.list.indexOf(NAR.voice))); return;
+  }
+  NAR.voice=NAR.list[+vSel.value]; stopVoice(); capKey=null;
+};
+function speak(s){
+  if(!voiceOn||!playing||!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const text=SAY.reduce((a,[r,v])=>a.replace(r,v),s);
+  const u=new SpeechSynthesisUtterance(text);
+  if(NAR.voice){ u.voice=NAR.voice; u.lang=NAR.voice.lang; } else u.lang='en-GB';
+  u.rate=1;
+  NAR.u=u; NAR.speaking=true; NAR.until=performance.now()+(text.split(/\s+/).length/2+4)*1000;
+  u.onend=u.onerror=()=>{ if(NAR.u===u) NAR.speaking=false; };
+  setTimeout(()=>{ if(NAR.u===u) speechSynthesis.speak(u); },80);
+}
+function stopVoice(){ NAR.speaking=false; NAR.u=null; if('speechSynthesis' in window) speechSynthesis.cancel(); }
+function narrating(){ if(!NAR.speaking) return false; if(performance.now()>NAR.until){ NAR.speaking=false; return false; } return true; }
+
+function updateCaption(i,lt){
+  const caps=S[i].caps; let ci=0; caps.forEach((c,k)=>{ if(lt>=c[0]) ci=k; });
+  const key=i+'-'+ci; if(key!==capKey){ capKey=key; capEl.textContent=caps[ci][1]; speak(caps[ci][1]); }
+}
+function render(){
+  ctx.setTransform(dpr,0,0,dpr,0,0); ctx.globalAlpha=1; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+  if(explore){ renderExplore(); return; }
+  const {i,lt}=locate(T), s=S[i], last=i===S.length-1;
+  ctx.globalAlpha=Math.min(P(lt,0,.45), last?1:1-P(lt,s.dur-.55,.55));
+  s.draw(lt); ctx.globalAlpha=1;
+  txt(`${i+1} · ${s.title}`,1240,30,{size:14,color:'#555',align:'right',font:MONO});
+  updateCaption(i,lt);
+  fillEl.style.width=(T/TOTAL*100)+'%'; timeEl.textContent=`${fmt(T)} / ${fmt(TOTAL)}`;
+  chapBtns.forEach((b,k)=>b.classList.toggle('active',k===i));
+}
+function setPlaying(v){
+  playing=v; playBtn.textContent=v?'❚❚':'▶';
+  if(v){ setExplore(false); bigPlay.style.display='none'; if(T>=TOTAL) seek(0); capKey=null; } else stopVoice();
+}
+function seek(time){ T=clamp(time,0,TOTAL); capKey=null; stopVoice(); }
+function setExplore(v){
+  if(explore===v) return; explore=v; exBtn.classList.toggle('on',v); $('explorePanel').classList.toggle('show',v);
+  if(v){ if(playing) setPlaying(false); bigPlay.style.display='none';
+    capEl.textContent='Type any staff message, choose a test, and press Run. The highlighted line is the one running now; the values appear on the right.'; }
+  else capKey=null;
+}
+function frame(ts){
+  frameDt=lastTs!=null?(ts-lastTs)/1000:0;
+  if(playing){
+    let dt=Math.min(frameDt,.1);
+    if(voiceOn&&narrating()){ const h=HOLDS.find(x=>x>=T-1e-6); if(h!==undefined&&T+dt>=h) dt=Math.max(0,h-T); }
+    T+=dt;
+    if(T>=TOTAL){ T=TOTAL; if(!(voiceOn&&narrating())){ setPlaying(false); bigPlay.style.display='block'; bigPlay.textContent='↺'; } }
+  }
+  lastTs=ts; render(); requestAnimationFrame(frame);
+}
+cv.addEventListener('pointerdown',()=>{ if(!explore) setPlaying(!playing); });
+playBtn.onclick=()=>setPlaying(!playing);
+bigPlay.onclick=()=>setPlaying(true);
+$('restart').onclick=()=>{ seek(0); setPlaying(true); };
+voiceBtn.onclick=()=>{ voiceOn=!voiceOn; voiceBtn.textContent=voiceOn?'🔊 Voice on':'🔈 Voice off'; voiceBtn.classList.toggle('on',voiceOn); if(!voiceOn) stopVoice(); else capKey=null; };
+exBtn.onclick=()=>setExplore(!explore);
+$('exThr').oninput=e=>{ $('exThrV').textContent=parseFloat(e.target.value).toFixed(2); };
+$('exRun').onclick=()=>{ buildTrace(); capEl.textContent='Watch the highlighted line move. Try a vague message, a message with spelling mistakes, or a different THRESHOLD.'; };
+$('exMsg').addEventListener('keydown',e=>{ if(e.key==='Enter') $('exRun').click(); });
+$('bar').onclick=e=>{ setExplore(false); const r=$('bar').getBoundingClientRect(); seek((e.clientX-r.left)/r.width*TOTAL); };
+document.addEventListener('keydown',e=>{
+  if(['INPUT','SELECT'].includes(e.target.tagName)) return;
+  if(e.code==='Space'){ e.preventDefault(); setPlaying(!playing); }
+  if(e.code==='ArrowRight'){ const {i}=locate(T); if(i<S.length-1) seek(START[i+1]+.001); }
+  if(e.code==='ArrowLeft'){ const {i,lt}=locate(T); seek(START[lt<1.5&&i>0?i-1:i]+.001); }
+});
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

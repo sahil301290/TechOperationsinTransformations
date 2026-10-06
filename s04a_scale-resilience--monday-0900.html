@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monday, 09:00 · Scale and resilience</title>
+<meta name="video-id" content="s04a">
+<meta name="section" content="Scale and resilience">
+<style>
+  :root{--blue:#58C4DD;--yellow:#F7D96F;--grey:#8a8a8a}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0b0b0d;color:#e8e8e8;font-family:Georgia,'Times New Roman',serif;display:flex;justify-content:center;padding:24px 16px 40px;min-height:100vh}
+  .wrap{width:100%;max-width:1100px}
+  header{margin-bottom:16px;display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+  header h1{font-weight:normal;font-size:28px}
+  header h1 span{color:var(--blue)}
+  header p{color:var(--grey);font-style:italic;margin-top:4px;font-size:15px}
+  .ep{font-family:Consolas,monospace;font-size:12px;color:#666;border:1px solid #26262c;border-radius:999px;padding:4px 12px}
+  .stage{position:relative;background:#000;border-radius:12px;overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,.7),0 0 0 1px #1f1f24}
+  canvas{display:block;width:100%;height:auto;cursor:pointer}
+  #bigplay{position:absolute;inset:0;margin:auto;width:96px;height:96px;border-radius:50%;border:2px solid var(--blue);background:rgba(88,196,221,.08);color:var(--blue);font-size:36px;cursor:pointer;transition:transform .25s,background .25s;padding-left:6px}
+  #bigplay:hover{transform:scale(1.08);background:rgba(88,196,221,.18)}
+  .caption{min-height:70px;padding:16px 8px 6px;text-align:center;font-size:20px;line-height:1.45;color:#ddd}
+  .controls{display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap}
+  .controls button,.explore button{background:#16161a;border:1px solid #2a2a30;color:#ddd;border-radius:8px;height:38px;min-width:42px;padding:0 12px;font-size:15px;cursor:pointer;font-family:inherit;transition:border-color .2s,color .2s}
+  .controls button:hover,.explore button:hover{border-color:var(--blue);color:var(--blue)}
+  .controls button.on,.explore button.on{border-color:#FC6255;color:#FC6255}
+  #exploreBtn.on{border-color:var(--yellow);color:var(--yellow)}
+  .bar{position:relative;flex:1;min-width:160px;height:8px;background:#1c1c22;border-radius:6px;cursor:pointer}
+  .fill{position:absolute;left:0;top:0;bottom:0;background:var(--blue);border-radius:6px;width:0}
+  .tick{position:absolute;top:-3px;width:2px;height:14px;background:#444}
+  #time{font-family:Consolas,monospace;font-size:13px;color:var(--grey);min-width:92px;text-align:right}
+  .explore{display:none;flex-wrap:wrap;align-items:center;gap:12px 22px;margin-top:14px;padding:14px 16px;border:1px solid #2c2c33;border-radius:10px;background:#111115;font-family:Consolas,monospace;font-size:13px;color:#bbb}
+  .explore.show{display:flex}
+  .explore label{display:flex;align-items:center;gap:8px}
+  .explore input[type=range]{width:150px;accent-color:#F7D96F}
+  .explore input[type=checkbox]{accent-color:#F7D96F;width:16px;height:16px}
+  .explore b{color:var(--yellow);font-weight:normal;min-width:34px;display:inline-block}
+  .chapters{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+  .chapters button{background:transparent;border:1px solid #26262c;color:#9a9a9a;border-radius:999px;padding:6px 14px;font-size:13px;cursor:pointer;font-family:Consolas,monospace;transition:all .2s}
+  .chapters button:hover{color:#fff;border-color:#555}
+  .chapters button.active{color:#000;background:var(--blue);border-color:var(--blue)}
+  .hint{color:#555;font-size:12px;margin-top:14px;font-family:Consolas,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Monday, <span>09:00</span></h1>
+      <p>Why queues explode, how load balancing helps, and why statelessness matters</p>
+    </div>
+    <span class="ep" style="color:#F7D96F;border-color:#3a3a2a">Section: Scale and resilience</span>
+  </header>
+  <div class="stage">
+    <canvas id="cv" aria-label="Animated explainer"></canvas>
+    <button id="bigplay" aria-label="Play">▶</button>
+  </div>
+  <div class="caption" id="cap" aria-live="polite"></div>
+  <div class="controls">
+    <button id="play" aria-label="Play or pause">▶</button>
+    <button id="restart" aria-label="Restart">↺</button>
+    <div class="bar" id="bar"><div class="fill" id="fill"></div></div>
+    <span id="time">0:00 / 0:00</span>
+    <button id="voice">🔈 Voice off</button>
+    <button id="exploreBtn">🔍 Run the service desk</button>
+  </div>
+  <div class="explore" id="explorePanel">
+    <label>arrivals <input type="range" id="exRate" min="0.5" max="10" step="0.5" value="3"> <b id="exRateV">3.0</b>/s</label>
+    <label>copies <input type="range" id="exCopies" min="1" max="6" step="1" value="2"> <b id="exCopiesV">2</b></label>
+    <label><input type="checkbox" id="exHC" checked> health checks</label>
+    <button id="exCrash">💥 Crash copy 1</button>
+    <button id="exReset">↺ Reset</button>
+  </div>
+  <div class="chapters" id="chapters"></div>
+  <div class="hint">Space = play/pause · ← → = chapters · each copy answers about 2 requests per second</div>
+</div>
+
+<script>
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const W=1280, H=720; let dpr=1;
+function resize(){ dpr=Math.min(window.devicePixelRatio||1,2); cv.width=W*dpr; cv.height=H*dpr; }
+resize(); addEventListener('resize', resize);
+
+const C={white:'#ECECEC',grey:'#7d7d7d',dim:'#444',blue:'#58C4DD',yellow:'#F7D96F',green:'#83C167',red:'#FC6255',teal:'#5CD0B3',purple:'#B189C6',orange:'#FF9A4D'};
+const SERIF='Georgia, "Times New Roman", serif', MONO='Consolas, "SFMono-Regular", "Liberation Mono", monospace';
+const clamp=(x,a=0,b=1)=>Math.max(a,Math.min(b,x));
+const smooth=x=>{x=clamp(x);return x*x*(3-2*x);};
+const P=(t,s,d)=>smooth((t-s)/d);
+const lerp=(a,b,p)=>a+(b-a)*p;
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;}}
+
+/* ---------- drawing helpers ---------- */
+const fontStr=(size,font,style)=>[style,size+'px',font].filter(Boolean).join(' ');
+function txt(s,x,y,o={}){
+  const {size=28,color=C.white,align='center',alpha=1,font=SERIF,style='',p=1}=o;
+  if(alpha<=0||p<=0) return;
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.font=fontStr(size,font,style); ctx.fillStyle=color; ctx.textAlign=align; ctx.textBaseline='middle';
+  if(p<1){ const w=ctx.measureText(s).width, x0=align==='center'?x-w/2:align==='right'?x-w:x; ctx.beginPath(); ctx.rect(x0-4,y-size,(w+8)*p,size*2); ctx.clip(); }
+  ctx.fillText(s,x,y); ctx.restore();
+}
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function box(x,y,w,h,o={}){
+  const {stroke=C.white,fill=null,alpha=1,lw=2,r=10,p=1,dash=null}=o; if(alpha<=0||p<=0) return;
+  ctx.save(); ctx.globalAlpha*=alpha; rr(x,y,w,h,r); if(fill){ctx.fillStyle=fill;ctx.fill();}
+  const L=2*(w+h); if(p<1) ctx.setLineDash([L*p,L]); else if(dash) ctx.setLineDash(dash);
+  ctx.strokeStyle=stroke; ctx.lineWidth=lw; ctx.stroke(); ctx.restore();
+}
+function seg(x1,y1,x2,y2,o={}){
+  const {color=C.white,lw=2,alpha=1,p=1,dash=null}=o; if(p<=0||alpha<=0) return;
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.lineCap='round'; if(dash) ctx.setLineDash(dash);
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(lerp(x1,x2,p),lerp(y1,y2,p)); ctx.stroke(); ctx.restore();
+}
+function arrow(x1,y1,x2,y2,o={}){
+  const {color=C.white,p=1,alpha=1,lw=2.5,head=12}=o; if(p<=0||alpha<=0) return;
+  seg(x1,y1,x2,y2,{color,lw,alpha,p});
+  const x=lerp(x1,x2,p), y=lerp(y1,y2,p), a=Math.atan2(y2-y1,x2-x1);
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.fillStyle=color; ctx.beginPath(); ctx.moveTo(x,y);
+  ctx.lineTo(x-head*Math.cos(a-.4),y-head*Math.sin(a-.4)); ctx.lineTo(x-head*Math.cos(a+.4),y-head*Math.sin(a+.4)); ctx.closePath(); ctx.fill(); ctx.restore();
+}
+function dot(x,y,r,color,alpha=1){ if(alpha<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.fillStyle=color; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); ctx.restore(); }
+function ring(x,y,r,color,alpha=1,lw=2){ if(alpha<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke(); ctx.restore(); }
+function arc(x,y,r,f,color,alpha=1,lw=2.5){ if(alpha<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.beginPath(); ctx.arc(x,y,r,-Math.PI/2,-Math.PI/2+Math.PI*2*clamp(f)); ctx.stroke(); ctx.restore(); }
+function poly(pts,o={}){
+  const {color=C.white,lw=2.5,alpha=1}=o; if(alpha<=0||pts.length<2) return;
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.lineJoin='round'; ctx.beginPath();
+  pts.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y)); ctx.stroke(); ctx.restore();
+}
+function cylinder(cx,cy,w,h,color,a){
+  if(a<=0) return; ctx.save(); ctx.globalAlpha*=a; ctx.strokeStyle=color; ctx.lineWidth=2; ctx.fillStyle='rgba(0,0,0,.9)';
+  ctx.beginPath(); ctx.ellipse(cx,cy+h/2,w/2,12,0,0,Math.PI); ctx.lineTo(cx-w/2,cy-h/2); ctx.ellipse(cx,cy-h/2,w/2,12,0,Math.PI,0,true); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(cx,cy-h/2,w/2,12,0,0,Math.PI*2); ctx.stroke(); ctx.restore();
+}
+
+/* ======================================================================
+   QUEUE SIMULATOR (deterministic, seekable)
+   ====================================================================== */
+const DT=.02;
+class Sim{
+  constructor(cfg){ this.cfg=cfg; this.reset(); }
+  reset(){
+    const c=this.cfg; this.t=0; this.rng=mulberry32(c.seed||3); this.reqs=[]; this.id=0; this.rr=0;
+    this.srv=[]; for(let k=0;k<c.max;k++) this.srv.push({q:[],cur:null,healthy:true,inbound:0});
+    this.nextArr=this.gap(0); this.hist=[]; this.histT=0; this.nextCheck=0; this.pings=[]; this.waits=[]; this.served=0;
+  }
+  gap(t){ const l=this.cfg.lambda(t); return l<=.01 ? t+.5 : t-Math.log(1-this.rng())/l; }
+  up(t,k){ return this.cfg.up ? this.cfg.up(t,k) : true; }
+  choose(t,ex=-1){
+    const n=this.cfg.copies(t); let best=-1, bl=1e9;
+    for(let i=0;i<n;i++){ const k=(this.rr+i)%n, s=this.srv[k]; if(!s.healthy||k===ex) continue;
+      const l=s.q.length+(s.cur?1:0)+s.inbound; if(l<bl){bl=l;best=k;} }
+    this.rr=(this.rr+1)%Math.max(1,n); return best;
+  }
+  reroute(r,fromK,t){
+    const nk=this.choose(t,fromK); r.fromK=fromK;
+    if(nk<0){ r.ph='toLB'; r.t0=t-this.cfg.tLB; r.k=-1; return; }
+    r.ph='re'; r.t0=t; r.k=nk; this.srv[nk].inbound++;
+  }
+  step(dt){
+    const c=this.cfg, t=this.t+dt, n=c.copies(t);
+    while(this.nextArr<=t){ this.reqs.push({id:this.id++,ph:'toLB',t0:this.nextArr,k:-1,fromK:-1}); this.nextArr=this.gap(this.nextArr); }
+    if(t>=this.nextCheck){
+      if(c.hcOn && c.hcOn()){
+        const res=[];
+        for(let k=0;k<n;k++){ const ok=this.up(t,k), s=this.srv[k]; res.push(ok);
+          if(!ok&&s.healthy){ s.healthy=false; const moved=s.cur?[s.cur,...s.q]:[...s.q]; s.cur=null; s.q=[]; moved.forEach(r=>this.reroute(r,k,t)); }
+          else if(ok&&!s.healthy) s.healthy=true; }
+        this.pings.push({t,res}); if(this.pings.length>4) this.pings.shift();
+      } else this.srv.forEach(s=>s.healthy=true);
+      this.nextCheck+=c.hcInt||2;
+    }
+    for(const r of this.reqs){
+      if(r.ph==='toLB'){ if(t-r.t0>=c.tLB){ const k=this.choose(t); if(k>=0){ r.ph='toSrv'; r.t0=t; r.k=k; r.fromK=-1; this.srv[k].inbound++; } } }
+      else if(r.ph==='toSrv'||r.ph==='re'){ if(t-r.t0>=c.tSrv){ const s=this.srv[r.k]; s.inbound--;
+          if(r.k>=n){ this.reroute(r,r.k,t); continue; }
+          r.ph='queue'; if(r.q0==null) r.q0=t; s.q.push(r); } }
+      else if(r.ph==='out'){ if(t-r.t0>=.6) r.ph='done'; }
+    }
+    this.srv.forEach((s,k)=>{ if(!this.up(t,k)) return;
+      if(s.cur&&t>=s.cur.end){ const r=s.cur; r.ph='out'; r.t0=t; s.cur=null; this.waits.push([t,r.start-r.q0]); this.served++; }
+      if(!s.cur&&s.q.length){ const r=s.q.shift(); r.ph='serve'; r.start=t; r.end=t+(1/c.mu)*(.7+.6*this.rng()); s.cur=r; } });
+    this.reqs=this.reqs.filter(r=>r.ph!=='done');
+    this.t=t;
+    if(t>=this.histT){ this.hist.push([t,this.waitingCount()]); this.histT+=.25; if(this.hist.length>500) this.hist.shift(); }
+    if(this.waits.length>600) this.waits.splice(0,150);
+  }
+  waitingCount(){ return this.srv.reduce((a,s)=>a+s.q.length,0)+this.reqs.filter(r=>r.ph==='toLB'&&this.t-r.t0>=this.cfg.tLB).length; }
+  advanceTo(T){ while(this.t+DT<=T+1e-9) this.step(DT); }
+}
+function syncSim(sim,t){ if(t<sim.t-1e-6) sim.reset(); sim.advanceTo(t); }
+const waitCol=w=>w<2?C.blue:w<5?C.orange:C.red;
+const slotPos=(L,k,i)=>[L.sx-L.bw/2-16-i*13, L.ys[k]];
+const slotsFor=L=>Math.max(3,Math.floor((L.sx-L.bw/2-16-(L.lb?L.lb[0]+80:L.src[0]+70))/13));
+
+function drawSim(sim,L,a=1){
+  const t=sim.t, c=sim.cfg, n=c.copies(t), slots=slotsFor(L);
+  for(let i=0;i<5;i++) ring(L.src[0],L.src[1]-60+i*30,9,C.blue,a);
+  txt('Staff',L.src[0],L.src[1]+96,{size:18,style:'italic',color:C.grey,alpha:a});
+  if(L.lb){ box(L.lb[0]-60,L.lb[1]-38,120,76,{stroke:C.yellow,alpha:a}); txt('Load',L.lb[0],L.lb[1]-12,{size:17,alpha:a}); txt('balancer',L.lb[0],L.lb[1]+12,{size:17,alpha:a}); }
+  L.ys.forEach((y,k)=>{
+    const sa=a*(L.alpha?L.alpha(k):(k<n?1:0)); if(sa<=0) return;
+    const s=sim.srv[k], up=sim.up(t,k);
+    if(L.lb) seg(L.lb[0]+60,L.lb[1],L.sx-L.bw/2,y,{color:'#24242c',lw:1.5,alpha:sa});
+    box(L.sx-L.bw/2,y-L.bh/2,L.bw,L.bh,{stroke:(!up||!s.healthy)?C.red:C.teal,alpha:sa*(s.healthy?1:.65),dash:s.healthy?null:[6,5]});
+    txt(L.single?'API':`API copy ${k+1}`,L.sx+12,y-(L.bh>56?11:8),{size:L.bh>56?16:14,alpha:sa});
+    const st=!up?'crashed':!s.healthy?'out of rotation':s.cur?'serving':'idle';
+    txt(st,L.sx+12,y+(L.bh>56?13:10),{size:12,style:'italic',color:!up?C.red:C.grey,alpha:sa});
+    const q=s.q;
+    for(let i=0;i<Math.min(q.length,slots);i++){
+      const [x,yy]=slotPos(L,k,i);
+      if(i===slots-1&&q.length>slots){ txt('+'+(q.length-slots+1),x-4,yy,{size:14,font:MONO,color:C.red,alpha:sa,align:'right'}); break; }
+      dot(x,yy,5,waitCol(t-q[i].q0),sa);
+    }
+    if(s.cur){ const cx=L.sx-L.bw/2+22; dot(cx,y,5,C.white,sa); arc(cx,y,11,(t-s.cur.start)/(s.cur.end-s.cur.start),C.yellow,sa,2); }
+  });
+  let stuck=0;
+  sim.reqs.forEach(r=>{
+    let pos=null, col=C.blue, al=a;
+    if(r.ph==='toLB'){
+      const u=clamp((t-r.t0)/c.tLB), sy=L.src[1]+((r.id*37)%5-2)*30;
+      const dest=L.lb?L.lb:slotPos(L,0,sim.srv[0].q.length);
+      pos=[lerp(L.src[0]+12,dest[0],smooth(u)),lerp(sy,dest[1],smooth(u))];
+      if(u>=1&&L.lb){ pos=[L.lb[0]-45+(stuck%10)*10,L.lb[1]+52+Math.floor(stuck/10)*10]; col=C.red; stuck++; }
+    } else if(r.ph==='toSrv'||r.ph==='re'){
+      const u=clamp((t-r.t0)/Math.max(c.tSrv,.001));
+      const fromVis=r.ph==='re'&&r.fromK>=0&&r.fromK<L.ys.length&&(L.alpha?L.alpha(r.fromK)>0:r.fromK<n);
+      const from=fromVis?[L.sx-L.bw/2,L.ys[r.fromK]]:(L.lb||L.src);
+      const to=slotPos(L,r.k,sim.srv[r.k].q.length);
+      pos=[lerp(from[0],to[0],smooth(u)),lerp(from[1],to[1],smooth(u))]; if(r.ph==='re') col=C.orange;
+    } else if(r.ph==='out'){ const u=clamp((t-r.t0)/.6); pos=[lerp(L.sx+L.bw/2,L.exitX,u),L.ys[r.k]]; col=C.green; al=a*(1-u); }
+    if(pos) dot(pos[0],pos[1],5,col,al);
+  });
+  if(L.lb) sim.pings.forEach(p=>{
+    const u=(t-p.t)/.9; if(u<0||u>1.4) return;
+    p.res.forEach((ok,k)=>{
+      if(k>=L.ys.length) return;
+      const A=[L.lb[0]+60,L.lb[1]], B=[L.sx-L.bw/2,L.ys[k]];
+      if(u<.5){ const v=u/.5; dot(lerp(A[0],B[0],v),lerp(A[1],B[1],v),3.5,C.white,a*.9); }
+      else if(u<1&&ok){ const v=(u-.5)/.5; dot(lerp(B[0],A[0],v),lerp(B[1],A[1],v),3.5,C.green,a*.9); }
+      if(u>=.5) txt(ok?'200':'✗ no answer',B[0]+L.bw+28,B[1]-L.bh/2+8,{size:13,font:MONO,color:ok?C.green:C.red,align:'left',alpha:a*(1-clamp((u-1)/.4))});
+    });
+  });
+}
+function graph(sim,x,y,w,h,t0,t1,maxY,a,title){
+  if(a<=0) return;
+  box(x,y,w,h,{stroke:'#2c2c33',fill:'rgba(8,8,11,.9)',alpha:a});
+  txt(title,x+14,y+18,{size:14,font:MONO,color:C.grey,align:'left',alpha:a});
+  txt(String(maxY),x+w-10,y+40,{size:12,font:MONO,color:'#555',align:'right',alpha:a});
+  const gx=v=>lerp(x+14,x+w-14,(v-t0)/(t1-t0)), gy=v=>lerp(y+h-12,y+40,clamp(v/maxY));
+  const pts=sim.hist.filter(([tt])=>tt>=t0&&tt<=t1).map(([tt,v])=>[gx(tt),gy(v)]);
+  seg(x+14,y+h-12,x+w-14,y+h-12,{color:'#333',lw:1,alpha:a});
+  poly(pts,{color:C.yellow,lw:2.5,alpha:a});
+}
+
+/* ---------- layouts ---------- */
+const L1={src:[90,330],lb:null,sx:840,ys:[330],bw:150,bh:90,exitX:1210,single:true};
+const L3={src:[80,340],lb:[440,340],sx:1000,ys:[180,340,500],bw:150,bh:80,exitX:1230};
+function layoutFor(n){ const sp=Math.min(150,440/n), ys=[]; for(let k=0;k<n;k++) ys.push(360+(k-(n-1)/2)*sp);
+  return {src:[80,360],lb:[420,360],sx:1000,ys,bw:150,bh:Math.min(80,sp-16),exitX:1230}; }
+
+/* ======================================================================
+   SCENES
+   ====================================================================== */
+const hx1=h=>lerp(150,1130,(h-7)/5), vy1=v=>lerp(520,150,v/300);
+const normalDay=h=>8+40*Math.exp(-((h-10)**2)/(2*1.6**2));
+const mondayDay=h=>normalDay(h)+235*smooth((h-8.92)/.16)*Math.exp(-Math.max(0,h-9.25)/.65);
+const curvePts=(fn,h0,h1,X,Y)=>{ const p=[]; for(let i=0;i<=240;i++){ const h=lerp(h0,h1,i/240); p.push([X(h),Y(fn(h))]); } return p; };
+
+const hx7=h=>lerp(150,1130,(h-8)/3), vy7=v=>lerp(540,150,v/11);
+const demand=h=>.8+5.7*smooth((h-8.95)/.1)*Math.exp(-Math.max(0,h-9.1)/.45);
+const capReact=h=>2*Math.max(1,Math.ceil(demand(h-.12)/1.4));
+const capSched=h=>Math.max(capReact(h),(h>=8.75&&h<9.8)?8:0);
+
+const S=[
+/* 1 ─ Monday, 09:00 */
+{title:'Monday, 09:00',dur:24,
+ caps:[[0,"Monday morning. The system was down all weekend."],
+       [3.8,"At 09:00, everyone logs their problems at once."],
+       [7.5,"On a normal day, requests arrive at a steady trickle. This Monday, the rate jumps several times higher, in minutes."],
+       [15.5,"And the manager is clear: “If the AI is down, I still need tickets to reach my team.”"]],
+ draw(t){
+   txt('SECTION · SCALE AND RESILIENCE',640,80,{size:15,font:MONO,color:C.yellow,alpha:P(t,.2,.8)*(1-P(t,5.5,.6))});
+   const ax=P(t,.3,1);
+   seg(150,520,1140,520,{color:C.grey,lw:1.5,alpha:ax}); seg(150,520,150,140,{color:C.grey,lw:1.5,alpha:ax});
+   for(let h=7;h<=12;h++){ txt(String(h).padStart(2,'0')+':00',hx1(h),545,{size:14,font:MONO,color:C.grey,alpha:ax}); }
+   [100,200,300].forEach(v=>{ seg(150,vy1(v),1140,vy1(v),{color:'#1c1c22',lw:1,alpha:ax}); txt(String(v),138,vy1(v),{size:12,font:MONO,color:'#555',align:'right',alpha:ax}); });
+   txt('requests per minute',160,128,{size:15,style:'italic',color:C.grey,align:'left',alpha:ax});
+   const pn=P(t,1,2.6); poly(curvePts(normalDay,7,7+5*pn,hx1,vy1),{color:C.grey,lw:2.5});
+   txt('a normal day',hx1(11.3),vy1(normalDay(11.3))-20,{size:16,style:'italic',color:C.grey,alpha:P(t,3.2,.8)});
+   const pm=P(t,7.6,3.6); poly(curvePts(mondayDay,7,7+5*pm,hx1,vy1),{color:C.yellow,lw:3.5});
+   txt('09:00 · the weekend backlog arrives',hx1(9.35)+18,vy1(258),{size:18,color:C.yellow,align:'left',alpha:P(t,10.6,.8)});
+   const qa=P(t,15.6,.8);
+   box(190,575,900,110,{stroke:'#33333b',fill:'rgba(8,8,11,.95)',alpha:qa});
+   txt('“Monday after the weekend outage, everyone logs their problems at once.',640,606,{size:19,style:'italic',alpha:qa});
+   txt('And if the AI is down, I still need tickets to reach my team.”',640,634,{size:19,style:'italic',alpha:qa});
+   txt('Service desk manager, Harbourside Health',640,664,{size:14,font:MONO,color:C.grey,alpha:qa});
+ }},
+
+/* 2 ─ One copy, one queue */
+{title:'One copy, one queue',dur:36,
+ sim:new Sim({seed:5,max:1,mu:2,lambda:t=>t<13?1.6:3.0,copies:()=>1,tLB:1.4,tSrv:0}),
+ caps:[[0,"Start with one copy of the API. It can answer about two requests every second."],
+       [6,"When requests arrive slower than that, the queue stays short. Each request waits only a moment."],
+       [12.5,"Now the Monday rush: three requests per second."],
+       [16,"One more arrives every second than leaves. The queue grows, and it never stops growing."],
+       [23,"Every new arrival waits behind everyone already in the line. The wait gets longer, minute by minute."],
+       [30,"This is not a slow system. It is a system that can never catch up."]],
+ draw(t){
+   syncSim(this.sim,t); const s=this.sim, lam=s.cfg.lambda(t), q=s.srv[0].q.length;
+   drawSim(s,L1,P(t,.2,.8));
+   const a=P(t,1,.8);
+   box(60,470,520,210,{stroke:'#2c2c33',fill:'rgba(8,8,11,.9)',alpha:a});
+   const row=(l,v,col,y)=>{ txt(l,84,y,{size:18,align:'left',alpha:a}); txt(v,556,y,{size:20,font:MONO,color:col,align:'right',alpha:a}); };
+   row('arriving',lam.toFixed(1)+' / s',lam>2?C.red:C.yellow,510);
+   row('capacity (one copy)','2.0 / s',C.teal,550);
+   row('waiting in the queue',String(q),q>6?C.red:C.white,590);
+   row('a new arrival waits about',(q*.5).toFixed(1)+' s',q>6?C.red:C.white,630);
+   graph(s,700,470,520,210,0,36,24,a,'queue length over time');
+   txt('3 arrive − 2 leave = +1 waiting, every second',640,190,{size:24,color:C.red,p:P(t,16.4,1.6),alpha:1-P(t,29.6,.5)});
+   txt('it can never catch up',640,190,{size:30,color:C.red,p:P(t,30.3,1.4)});
+   txt('● waiting <2s   ● 2–5s   ● >5s',60,450,{size:13,font:MONO,color:C.grey,align:'left',alpha:P(t,22,.8)});
+ }},
+
+/* 3 ─ The hockey stick */
+{title:'The hockey stick',dur:28.5,
+ caps:[[0,"How busy can a copy be before things go wrong? The answer is surprising."],
+       [5.5,"At half busy, a request takes about twice its normal time. Fine."],
+       [10.5,"At 80 percent, five times. At 90 percent, ten times."],
+       [15,"Past that, the curve shoots upwards. Near 100 percent, the wait has no limit."],
+       [21,"So “a bit slow” is a warning sign. Leave headroom: plan to run well below full capacity."]],
+ draw(t){
+   const X=r=>lerp(160,1000,r), Y=w=>lerp(560,120,w/25), a=P(t,.2,.8);
+   seg(160,560,1010,560,{color:C.grey,lw:1.5,alpha:a}); seg(160,560,160,110,{color:C.grey,lw:1.5,alpha:a});
+   [0,.25,.5,.75,1].forEach(r=>txt(Math.round(r*100)+'%',X(r),585,{size:14,font:MONO,color:C.grey,alpha:a}));
+   [5,10,20].forEach(w=>{ seg(160,Y(w),1000,Y(w),{color:'#1c1c22',lw:1,alpha:a}); txt(w+'×',148,Y(w),{size:13,font:MONO,color:'#666',align:'right',alpha:a}); });
+   txt('how busy the copy is (utilisation)',580,618,{size:17,style:'italic',color:C.grey,alpha:a});
+   txt('time per request (× normal)',170,96,{size:16,style:'italic',color:C.grey,align:'left',alpha:a});
+   seg(1000,560,1000,110,{color:C.red,lw:1.5,dash:[6,6],alpha:P(t,15.2,.8)});
+   const pc=P(t,1,4);
+   const pts=[]; for(let i=0;i<=300;i++){ const r=.985*i/300*pc; const w=1/(1-r); if(Y(w)<110) break; pts.push([X(r),Y(w)]); }
+   poly(pts,{color:C.yellow,lw:3.5});
+   txt('headroom',X(.35),Y(11),{size:20,color:C.green,alpha:P(t,21.6,.8)});
+   ctx.save(); ctx.globalAlpha*=.1*P(t,21.4,.8); ctx.fillStyle=C.green; ctx.fillRect(X(0),110,X(.7)-X(0),450); ctx.restore();
+   let r=.5;
+   if(t>=10.5) r=lerp(.5,.8,P(t,10.6,.9)); if(t>=12.4) r=lerp(.8,.9,P(t,12.5,.9));
+   if(t>=15) r=lerp(.9,.965,P(t,15.1,2.5)); if(t>=21) r=lerp(.965,.65,P(t,21.1,1.6));
+   const w=1/(1-r), da=P(t,5.5,.6);
+   if(Y(w)>=110) dot(X(r),Y(w),9,C.white,da); else arrow(X(r),130,X(r),108,{color:C.white,alpha:da});
+   [[.5,'2×',5.6],[.8,'5×',11.3],[.9,'10×',13.3]].forEach(([rr,l,s])=>txt(l,X(rr)-18,Y(1/(1-rr))-20,{size:18,font:MONO,color:C.yellow,align:'right',alpha:P(t,s,.6)}));
+   box(1030,200,220,170,{stroke:'#33333b',fill:'rgba(8,8,11,.9)',alpha:da});
+   txt('busy',1050,240,{size:17,align:'left',alpha:da}); txt(Math.round(r*100)+'%',1232,240,{size:22,font:MONO,color:r>.85?C.red:C.white,align:'right',alpha:da});
+   txt('time per request',1050,290,{size:17,align:'left',alpha:da});
+   txt((w>=100?'>100':w.toFixed(1))+'×',1232,330,{size:30,font:MONO,color:r>.85?C.red:C.yellow,align:'right',alpha:da});
+   txt('simple queue model (M/M/1): time = service time ÷ (1 − utilisation)',1250,700,{size:13,font:MONO,color:'#4a4a4a',align:'right'});
+ }},
+
+/* 4 ─ Many identical copies */
+{title:'Identical copies',dur:30,
+ sim:new Sim({seed:9,max:3,mu:2,lambda:()=>3.0,copies:t=>t<9?1:3,tLB:.9,tSrv:.7}),
+ caps:[[0,"Back to the rush: three requests per second, and one copy. The queue builds."],
+       [6,"One copy can only answer so many requests at once. So we run identical copies."],
+       [12,"A load balancer sits in front. It sends each request to the copy with the shortest line."],
+       [19,"Three copies can answer six requests per second. Now there is headroom, and the backlog drains."],
+       [25.5,"Same code, same model file, in every copy."]],
+ draw(t){
+   syncSim(this.sim,t); const s=this.sim, n=s.cfg.copies(t);
+   const L={...L3,alpha:k=>k===0?1:P(t,9,.8)};
+   drawSim(s,L,P(t,.2,.8));
+   const a=P(t,.8,.8), cap=n*2, busy=Math.round(3/cap*100);
+   txt(`arriving 3.0/s  ·  capacity ${n} × 2 = ${cap.toFixed(1)}/s  ·  busy ${busy>100?'>100':busy}%  ·  waiting ${s.waitingCount()}`,640,70,{size:18,font:MONO,color:n===1?C.red:C.green,alpha:a});
+   txt('→ shortest line',440,280,{size:14,font:MONO,color:C.yellow,alpha:P(t,12.2,.6)});
+   txt('same code · same model file',1000,600,{size:17,style:'italic',color:C.teal,alpha:P(t,25.6,.8)});
+ }},
+
+/* 5 ─ Health checks */
+{title:'Health checks',dur:32,
+ sim:new Sim({seed:11,max:3,mu:2,lambda:()=>3.6,copies:()=>3,up:(t,k)=>!(k===1&&t>=9&&t<25),tLB:.9,tSrv:.7,hcOn:()=>true,hcInt:2}),
+ caps:[[0,"Every few seconds, the load balancer asks each copy a simple question: are you alive?"],
+       [6,"Our GET / endpoint is perfect for this. A healthy copy answers 200."],
+       [10.8,"At 09:14, copy 2 crashes. At the next check, it does not answer."],
+       [16,"The load balancer stops sending to it, and re-routes the requests it was holding."],
+       [21.5,"But two copies are now 90 percent busy. Remember the curve: the lines grow."],
+       [26.5,"When copy 2 recovers and passes a check, it gets traffic again."]],
+ draw(t){
+   syncSim(this.sim,t); const s=this.sim;
+   drawSim(s,L3,P(t,.2,.8));
+   const healthy=s.srv.filter(v=>v.healthy).length, cap=healthy*2, busy=Math.round(3.6/cap*100);
+   txt(`arriving 3.6/s  ·  healthy copies ${healthy}  ·  capacity ${cap.toFixed(1)}/s  ·  busy ${busy}%`,640,70,{size:18,font:MONO,color:busy>85?C.red:C.green,alpha:P(t,.8,.8)});
+   txt('GET /  →  are you alive?',440,252,{size:14,font:MONO,color:C.white,alpha:P(t,6.2,.6)});
+   txt('orange = re-routed',440,430,{size:14,font:MONO,color:C.orange,alpha:P(t,16.2,.6)*(1-P(t,25,.6))});
+ }},
+
+/* 6 ─ Why stateless matters */
+{title:'Why stateless matters',dur:40,
+ caps:[[0,"Imagine a different design, where each copy remembers users' earlier messages inside itself."],
+       [6.3,"Message one goes to copy 1: “My laptop is broken.” Copy 1 keeps a note."],
+       [11.5,"Message two: “It's still not fixed.” The load balancer sends it to copy 2. Copy 2 has never heard of it."],
+       [19,"Our API is stateless. Each request carries everything it needs: the message and the key."],
+       [25,"So any copy can answer any request. We can add copies, remove them, or restart them, and nothing is lost."],
+       [32.5,"If something must be remembered, keep it in a shared store outside the copies. Where that data lives is a design question of its own."]],
+ draw(t){
+   const U=[110,360], LB=[420,360], CX=780, YS=[200,360,520];
+   const aA=1-P(t,18.3,.6), aB=P(t,18.8,.6), base=Math.max(aA,aB)*P(t,.2,.8);
+   ring(U[0],U[1],22,C.blue,base,2.5); txt('Aisha',U[0],U[1]+44,{size:17,style:'italic',color:C.grey,alpha:base});
+   box(LB[0]-60,LB[1]-35,120,70,{stroke:C.yellow,alpha:base}); txt('Load',LB[0],LB[1]-11,{size:16,alpha:base}); txt('balancer',LB[0],LB[1]+12,{size:16,alpha:base});
+   const env=(t0,k,label,col,a)=>{ if(t<t0||a<=0) return; const u1=P(t,t0,.8), u2=P(t,t0+.8,.8); let x,y;
+     if(t<t0+.8){ x=lerp(U[0]+30,LB[0]-60,u1); y=U[1]; } else { x=lerp(LB[0]+60,CX-110,u2); y=lerp(LB[1],YS[k],u2); }
+     const fa=1-P(t,t0+1.8,.4); box(x-95,y-17,190,34,{stroke:col,fill:'rgba(0,0,0,.92)',alpha:a*fa,r:6}); txt(label,x,y,{size:13,font:MONO,color:col,alpha:a*fa}); };
+   YS.forEach((y,k)=>{ seg(LB[0]+60,LB[1],CX-100,y,{color:'#24242c',lw:1.5,alpha:base}); });
+   // phase A: stateful
+   txt('A stateful design',640,72,{size:30,color:C.orange,alpha:aA*P(t,.4,.8)});
+   if(aA>0){
+     YS.forEach((y,k)=>{ box(CX-100,y-40,200,80,{stroke:k===1&&t>14?C.red:C.teal,alpha:aA*P(t,.4,.8)}); txt(`API copy ${k+1}`,CX,y-10,{size:17,alpha:aA*P(t,.4,.8)}); txt('keeps notes inside',CX,y+16,{size:12,style:'italic',color:C.grey,alpha:aA*P(t,.4,.8)}); });
+     env(6.6,0,'“My laptop is broken”',C.white,aA);
+     box(900,YS[0]-24,300,48,{stroke:C.orange,alpha:aA*P(t,8.6,.5),r:6}); txt('note: Aisha → laptop broken',1050,YS[0],{size:14,font:MONO,color:C.orange,alpha:aA*P(t,8.6,.5)});
+     env(12,1,'“It’s still not fixed”',C.white,aA);
+     txt('“It”? Who is Aisha?',1050,YS[1]-10,{size:20,color:C.red,alpha:aA*P(t,14,.5)});
+     txt('wrong or useless answer',1050,YS[1]+20,{size:15,style:'italic',color:C.red,alpha:aA*P(t,14.6,.5)});
+     txt('no note here',1050,YS[2],{size:15,style:'italic',color:C.grey,alpha:aA*P(t,14.6,.5)});
+   }
+   // phase B: stateless
+   if(aB>0){
+     txt('Our design: stateless',640,72,{size:30,color:C.green,alpha:aB});
+     YS.forEach((y,k)=>{
+       const isNew=k===2&&t>26.4, flash=k===2?P(t,25.6,.4)*(1-P(t,26.4,.4)):0;
+       box(CX-100,y-40,200,80,{stroke:flash>.1?C.yellow:C.teal,alpha:aB*(1-flash*.7)});
+       txt(isNew?'API copy 4 (new)':`API copy ${k+1}`,CX,y-10,{size:17,alpha:aB*(1-flash)});
+       txt('no memory between requests',CX,y+16,{size:12,style:'italic',color:C.grey,alpha:aB*(1-flash)}); });
+     [[19.8,0],[21,1],[22.2,2]].forEach(([t0,k])=>{ env(t0,k,'message + key',C.green,aB); txt('✓ 200',CX+70,YS[k]-28,{size:14,font:MONO,color:C.green,alpha:aB*P(t,t0+1.7,.4)}); });
+     txt('removed · replaced',CX,YS[2]+56,{size:13,font:MONO,color:C.yellow,alpha:P(t,25.6,.5)*(1-P(t,31,.5))});
+     txt('↻ restarted',CX,YS[0]+56,{size:13,font:MONO,color:C.yellow,alpha:P(t,27.4,.5)*(1-P(t,31,.5))});
+     env(28.6,2,'message + key',C.green,aB); txt('✓ still works',CX+170,YS[2],{size:15,font:MONO,color:C.green,align:'left',alpha:P(t,30.3,.5)*(1-P(t,32.5,.5))});
+     const sa=P(t,32.8,.8);
+     YS.forEach(y=>seg(CX+100,y,1050,360,{color:C.purple,lw:1.5,dash:[5,5],alpha:sa}));
+     cylinder(1130,360,170,90,C.purple,sa);
+     txt('shared store',1130,354,{size:17,color:C.purple,alpha:sa}); txt('its own design question',1130,378,{size:12,font:MONO,color:C.grey,alpha:sa});
+   }
+ }},
+
+/* 7 ─ Autoscaling */
+{title:'Adding copies automatically',dur:33.5,
+ caps:[[0,"Managed platforms can add copies when busy, and remove them when quiet. This is autoscaling."],
+       [6,"But it reacts after the load arrives, and a new copy takes time to start."],
+       [11.5,"So for a few minutes, demand is above capacity. A queue builds. That is the red area."],
+       [18.5,"Because Monday mornings are predictable, we can add copies on a schedule, before 09:00."],
+       [24,"No red area now. But we pay for copies that sit idle before the rush."],
+       [30,"Again, a trade-off: waiting time against cost."]],
+ draw(t){
+   const a=P(t,.2,.8);
+   seg(150,540,1140,540,{color:C.grey,lw:1.5,alpha:a}); seg(150,540,150,140,{color:C.grey,lw:1.5,alpha:a});
+   ['08:00','08:30','09:00','09:30','10:00','10:30','11:00'].forEach((l,i)=>txt(l,hx7(8+i*.5),565,{size:14,font:MONO,color:C.grey,alpha:a}));
+   [2,4,6,8,10].forEach(v=>{ seg(150,vy7(v),1140,vy7(v),{color:'#1a1a20',lw:1,alpha:a}); txt(String(v),138,vy7(v),{size:12,font:MONO,color:'#555',align:'right',alpha:a}); });
+   txt('requests per second',160,124,{size:15,style:'italic',color:C.grey,align:'left',alpha:a});
+   const m=P(t,18.6,2.2), cap=h=>lerp(capReact(h),capSched(h),m);
+   const fr=P(t,11.6,1), fi=P(t,24.2,1);
+   for(let i=0;i<600;i++){ const h=8+3*i/600, d=demand(h), c=cap(h), x=hx7(h);
+     if(d>c) seg(x,vy7(c),x,vy7(d),{color:C.red,lw:2,alpha:.55*fr});
+     else if(fi>0) seg(x,vy7(d),x,vy7(c),{color:C.blue,lw:2,alpha:.13*fi}); }
+   const pd=P(t,.6,3), pc=P(t,3.6,3);
+   poly(curvePts(demand,8,8+3*pd,hx7,vy7),{color:C.yellow,lw:3.5});
+   poly(curvePts(cap,8,8+3*pc,hx7,vy7),{color:C.blue,lw:3});
+   txt('demand',160,605,{size:16,font:MONO,color:C.yellow,align:'left',alpha:a});
+   txt('capacity = copies × 2/s',260,605,{size:16,font:MONO,color:C.blue,align:'left',alpha:P(t,3.6,.8)});
+   txt('queue builds',hx7(9.12)+14,vy7(7.4),{size:18,color:C.red,align:'left',alpha:fr*(1-m)});
+   txt('start-up delay',hx7(9.03),vy7(1.3),{size:14,font:MONO,color:C.grey,alpha:P(t,7,.8)*(1-m)});
+   seg(hx7(8.75),540,hx7(8.75),150,{color:C.green,lw:1.5,dash:[6,6],alpha:P(t,18.8,.8)});
+   txt('08:45 · scheduled: 4 copies ready',hx7(8.75)+10,165,{size:15,font:MONO,color:C.green,align:'left',alpha:P(t,19,.8)});
+   txt('idle copies = cost',hx7(8.85),vy7(5),{size:17,color:C.blue,alpha:fi});
+   txt('waiting time  ⇄  cost',640,665,{size:30,color:C.yellow,p:P(t,30.2,1.6)});
+   txt('illustrative numbers',1250,700,{size:13,color:'#4a4a4a',align:'right',font:MONO});
+ }},
+
+/* 8 ─ Breakout A */
+{title:'Design challenge: Monday 09:00',dur:28.5,
+ caps:[[0,"Design challenge: Monday 09:00, after an outage. “Add more servers” is not an answer."],
+       [6,"Name the component: a load balancer, with autoscaled, stateless API copies."],
+       [11,"Where it sits: between the staff portal and the API copies."],
+       [15.5,"What it protects against: a sudden burst, and a single copy failing."],
+       [20.5,"And the new problems it creates: copies must be stateless, scaling has a delay, and every copy costs money."]],
+ draw(t){
+   const a=P(t,.3,.8);
+   txt('✗ “add more servers”',640,70,{size:22,color:C.red,alpha:a*(1-P(t,5.6,.5))});
+   box(60,120,150,64,{stroke:C.blue,alpha:a}); txt('Staff portal',135,152,{size:16,alpha:a});
+   box(330,120,150,64,{stroke:C.yellow,lw:3,alpha:a}); txt('Load balancer',405,152,{size:16,alpha:a});
+   [0,1,2].forEach(i=>box(600+i*10,110+i*12,170,50,{stroke:C.teal,fill:'rgba(0,0,0,.95)',alpha:a}));
+   txt('API copies ×3',705,159,{size:15,alpha:a});
+   box(900,120,300,64,{stroke:C.white,alpha:a}); txt('ML router → team queues',1050,152,{size:16,alpha:a});
+   arrow(212,152,326,152,{color:C.white,alpha:a}); arrow(482,152,596,152,{color:C.white,alpha:a}); arrow(792,152,896,152,{color:C.white,alpha:a});
+   txt('POST · JSON · sync',270,104,{size:12,font:MONO,color:C.grey,alpha:a});
+   txt('POST · JSON · sync',540,104,{size:12,font:MONO,color:C.grey,alpha:a});
+   const rows=[['COMPONENT',['Load balancer + autoscaled, stateless API copies'],6],
+               ['WHERE IT SITS',['Between the staff portal and the API copies'],11],
+               ['PROTECTS AGAINST',['A sudden burst of requests · one copy failing'],15.5],
+               ['NEW PROBLEMS',['Copies must be stateless · scaling has a delay','Every copy costs money and needs the model loaded'],20.5]];
+   let y=260;
+   rows.forEach(([k,lines,s])=>{ const ra=P(t,s,.6);
+     seg(100,y-28,1180,y-28,{color:'#22222a',lw:1,alpha:ra});
+     txt(k,110,y,{size:15,font:MONO,color:k==='NEW PROBLEMS'?C.orange:C.yellow,align:'left',alpha:ra});
+     lines.forEach((l,i)=>txt(l,380,y+i*32,{size:21,align:'left',p:P(t,s+.2,1.4)}));
+     y+=58+(lines.length-1)*32; });
+ }},
+
+/* 9 ─ Recap */
+{title:'Recap',dur:28,
+ caps:[[0,"Let's put it together."],
+       [2,"One. When requests arrive faster than they are served, the queue grows without limit."],
+       [7.5,"Two. Near full capacity, waiting time explodes. Leave headroom."],
+       [12,"Three. A load balancer spreads requests across identical copies, and skips copies that fail health checks."],
+       [19,"Four. Copies are only interchangeable if the API is stateless."],
+       [24,"Go deeper: work that can wait, what to do when copies fail, and how one GPU can serve more users at once."]],
+ draw(t){
+   txt('Monday, 09:00',640,105,{size:46,p:P(t,.2,1.5)});
+   const L=[["Arrivals faster than service → the queue grows without limit.",2.1],
+            ["Near full capacity, waiting explodes. Leave headroom.",7.6],
+            ["A load balancer spreads requests and skips unhealthy copies.",12.1],
+            ["Copies are only interchangeable if the API is stateless.",19.1]];
+   L.forEach(([s,t0],i)=>{ const y=225+i*95;
+     txt(String(i+1),150,y,{size:40,color:C.blue,alpha:P(t,t0,.6)});
+     txt(s,205,y,{size:25,align:'left',p:P(t,t0+.2,1.6)}); });
+   txt('Go deeper',640,622,{size:16,font:MONO,color:C.grey,alpha:P(t,24.2,1)});
+   txt('Is someone waiting? · A plan for failure · Serving many users at once',640,655,{size:18,font:MONO,color:C.yellow,alpha:P(t,24.8,1)});
+ }}
+];
+
+/* ======================================================================
+   EXPLORE: run the service desk (live)
+   ====================================================================== */
+const $=id=>document.getElementById(id);
+let exRate=3, exCopies=2, exHC=true, exCrash=false;
+const exSim=new Sim({seed:1,max:6,mu:2,lambda:()=>exRate,copies:()=>exCopies,up:(t,k)=>!(k===0&&exCrash),tLB:.9,tSrv:.7,hcOn:()=>exHC,hcInt:2});
+function setCopies(n){
+  const t=exSim.t; exCopies=n;
+  for(let k=n;k<exSim.srv.length;k++){ const s=exSim.srv[k];
+    if(s.cur){ s.cur.ph='out'; s.cur.t0=t; s.cur.k=Math.min(k,n-1); s.cur=null; }
+    const moved=[...s.q]; s.q=[]; moved.forEach(r=>exSim.reroute(r,k,t)); s.healthy=true; }
+}
+function renderExplore(dt){
+  exSim.advanceTo(exSim.t+Math.min(dt,.1));
+  const L=layoutFor(exCopies); drawSim(exSim,L,1);
+  const healthy=exSim.srv.slice(0,exCopies).filter((s,k)=>exHC?s.healthy:exSim.up(exSim.t,k)).length;
+  const cap=healthy*2, util=cap>0?exRate/cap:Infinity;
+  const recent=exSim.waits.filter(([tt])=>tt>exSim.t-10), avg=recent.length?recent.reduce((a,[,w])=>a+w,0)/recent.length:0;
+  const col=util>=1?C.red:util>.85?C.orange:C.green;
+  txt(`arrivals ${exRate.toFixed(1)}/s  ·  capacity ${cap.toFixed(1)}/s  ·  busy ${util===Infinity?'∞':Math.round(util*100)+'%'}  ·  waiting ${exSim.waitingCount()}  ·  avg wait (10 s) ${avg.toFixed(1)} s`,640,40,{size:16,font:MONO,color:col});
+  if(util>=1) txt(cap===0?'no healthy copy: in production, tickets should go to a human fallback queue':'over capacity: the queue will grow without limit',640,72,{size:16,style:'italic',color:C.red});
+  else if(util>.85) txt('close to the limit: waits climb steeply',640,72,{size:16,style:'italic',color:C.orange});
+  if(exCrash&&!exHC) txt('health checks off: the load balancer keeps sending to the crashed copy',640,100,{size:15,style:'italic',color:C.red});
+  graph(exSim,140,612,1000,96,exSim.t-30,exSim.t,30,1,'waiting · last 30 seconds');
+}
+
+/* ======================================================================
+   PLAYER
+   ====================================================================== */
+const START=[]; let TOTAL=0; S.forEach(s=>{START.push(TOTAL); TOTAL+=s.dur;});
+let T=0, playing=false, lastTs=null, voiceOn=false, capKey=null, explore=false, frameDt=0;
+const capEl=$('cap'), fillEl=$('fill'), timeEl=$('time'), playBtn=$('play'), bigPlay=$('bigplay'), voiceBtn=$('voice'), exBtn=$('exploreBtn');
+S.forEach((s,i)=>{
+  if(i>0){ const tk=document.createElement('div'); tk.className='tick'; tk.style.left=(START[i]/TOTAL*100)+'%'; $('bar').appendChild(tk); }
+  const b=document.createElement('button'); b.textContent=`${i+1} · ${s.title}`;
+  b.onclick=()=>{ setExplore(false); seek(START[i]+.001); if(!playing) setPlaying(true); };
+  $('chapters').appendChild(b);
+});
+const chapBtns=[...$('chapters').children];
+const locate=time=>{ for(let i=S.length-1;i>=0;i--) if(time>=START[i]) return {i,lt:Math.min(time-START[i],S[i].dur)}; return {i:0,lt:0}; };
+const fmt=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+/* ---------- NARRATOR: every word is spoken before the video moves on ---------- */
+const SAY=[[/“|”|"/g,''],[/TF-IDF/g,'T F I D F'],[/\b2xx\b/g,'two hundreds'],[/\b4xx\b/g,'four hundreds'],[/\b5xx\b/g,'five hundreds'],
+  [/HUMAN_REVIEW/g,'human review'],[/\bFINANCE\b/g,'Finance'],[/\bESTATES\b/g,'Estates'],[/\bIT\b/g,'I T'],[/\bHR\b/g,'H R'],
+  [/\bCCIO\b/g,'C C I O'],[/(\d{2}):(\d{2})/g,(m,h,mi)=>`${+h} ${mi==='00'?"o'clock":mi}`],[/7f3a/g,'7 F 3 A'],[/\//g,' slash ']];
+const NAR={u:null,speaking:false,until:0,voice:null,list:[]};
+const HOLDS=[]; S.forEach((s,i)=>{ s.caps.forEach((c,k)=>{ if(k>0) HOLDS.push(START[i]+c[0]-.02); }); HOLDS.push(START[i]+s.dur-.6); }); HOLDS.sort((a,b)=>a-b);
+const vSel=document.createElement('select'); vSel.title='Narrator voice';
+vSel.style.cssText='background:#16161a;border:1px solid #2a2a30;color:#ddd;border-radius:8px;height:38px;padding:0 8px;font-family:inherit;font-size:13px;max-width:200px';
+voiceBtn.after(vSel);
+const vNorm=l=>(l||'').replace('_','-');
+const vRank=v=>{ const l=vNorm(v.lang); return /^en-GB/i.test(l)?0:/^en-US/i.test(l)?1:/^en/i.test(l)?2:9; };
+const vGood=v=>/natural|online|google|neural|premium|enhanced/i.test(v.name)?1:0;
+const vName=v=>v.name.replace(/^(Microsoft|Google|Apple) /,'').replace(/\s*-\s*English.*$/,'').slice(0,34);
+function pickVoices(){
+  if(!('speechSynthesis' in window)) return;
+  const vs=speechSynthesis.getVoices().filter(v=>vRank(v)<9).sort((a,b)=>vRank(a)-vRank(b)||vGood(b)-vGood(a));
+  if(!vs.length) return;
+  NAR.list=vs; vSel.innerHTML='';
+  const label={0:'🇬🇧 UK English',1:'🇺🇸 US English',2:'Other English'}; let g=null, og=null;
+  vs.forEach((v,i)=>{
+    const r=vRank(v);
+    if(r!==g){ g=r; og=document.createElement('optgroup'); og.label=label[r]; vSel.appendChild(og); }
+    const o=document.createElement('option'); o.value=i; o.textContent=vName(v)+' · '+vNorm(v.lang); og.appendChild(o);
+  });
+  if(!vs.some(v=>vRank(v)===0)){
+    const og2=document.createElement('optgroup'); og2.label='No UK voice on this device';
+    const o=document.createElement('option'); o.value='help'; o.textContent='➕ How to add a UK English voice'; og2.appendChild(o); vSel.appendChild(og2);
+  }
+  const cur=NAR.voice?vs.findIndex(v=>v.name===NAR.voice.name):-1, i=cur>=0?cur:0;
+  vSel.value=String(i); NAR.voice=vs[i];
+}
+if('speechSynthesis' in window){ speechSynthesis.onvoiceschanged=pickVoices; pickVoices(); [300,1200,3500].forEach(ms=>setTimeout(pickVoices,ms)); }
+else vSel.style.display='none';
+vSel.onchange=()=>{
+  if(vSel.value==='help'){
+    capEl.textContent='To add a UK voice — Windows: Settings → Time & language → Speech → Add voices → English (United Kingdom). Mac: System Settings → Accessibility → Spoken Content → System voice → Manage Voices → English (UK). Or open this page in Microsoft Edge or Google Chrome, which include free UK voices. Then reload the page.';
+    vSel.value=String(Math.max(0,NAR.list.indexOf(NAR.voice))); return;
+  }
+  NAR.voice=NAR.list[+vSel.value]; stopVoice(); capKey=null;
+};
+function speak(s){
+  if(!voiceOn||!playing||!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const text=SAY.reduce((a,[r,v])=>a.replace(r,v),s);
+  const u=new SpeechSynthesisUtterance(text);
+  if(NAR.voice){ u.voice=NAR.voice; u.lang=NAR.voice.lang; } else u.lang='en-GB';
+  u.rate=1;
+  NAR.u=u; NAR.speaking=true; NAR.until=performance.now()+(text.split(/\s+/).length/2+4)*1000;
+  u.onend=u.onerror=()=>{ if(NAR.u===u) NAR.speaking=false; };
+  setTimeout(()=>{ if(NAR.u===u) speechSynthesis.speak(u); },80);
+}
+function stopVoice(){ NAR.speaking=false; NAR.u=null; if('speechSynthesis' in window) speechSynthesis.cancel(); }
+function narrating(){ if(!NAR.speaking) return false; if(performance.now()>NAR.until){ NAR.speaking=false; return false; } return true; }
+function updateCaption(i,lt){
+  const caps=S[i].caps; let ci=0; caps.forEach((c,k)=>{ if(lt>=c[0]) ci=k; });
+  const key=i+'-'+ci; if(key!==capKey){ capKey=key; capEl.textContent=caps[ci][1]; speak(caps[ci][1]); }
+}
+function render(){
+  ctx.setTransform(dpr,0,0,dpr,0,0); ctx.globalAlpha=1; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+  if(explore){ renderExplore(frameDt); return; }
+  const {i,lt}=locate(T), s=S[i], last=i===S.length-1;
+  ctx.globalAlpha=Math.min(P(lt,0,.45), last?1:1-P(lt,s.dur-.55,.55));
+  s.draw(lt); ctx.globalAlpha=1;
+  txt(`${i+1} · ${s.title}`,40,38,{size:15,color:'#555',align:'left',font:MONO});
+  updateCaption(i,lt);
+  fillEl.style.width=(T/TOTAL*100)+'%'; timeEl.textContent=`${fmt(T)} / ${fmt(TOTAL)}`;
+  chapBtns.forEach((b,k)=>b.classList.toggle('active',k===i));
+}
+function setPlaying(v){
+  playing=v; playBtn.textContent=v?'❚❚':'▶';
+  if(v){ setExplore(false); bigPlay.style.display='none'; if(T>=TOTAL) seek(0); capKey=null; } else stopVoice();
+}
+function seek(time){ T=clamp(time,0,TOTAL); capKey=null; stopVoice(); }
+function setExplore(v){
+  if(explore===v) return; explore=v; exBtn.classList.toggle('on',v); $('explorePanel').classList.toggle('show',v);
+  if(v){ if(playing) setPlaying(false); bigPlay.style.display='none';
+    capEl.textContent='Change the arrival rate and the number of copies. Crash a copy, then switch health checks off and see what happens.'; }
+  else capKey=null;
+}
+function frame(ts){
+  frameDt=lastTs!=null?(ts-lastTs)/1000:0;
+  if(playing){
+    let dt=Math.min(frameDt,.1);
+    if(voiceOn&&narrating()){ const h=HOLDS.find(x=>x>=T-1e-6); if(h!==undefined&&T+dt>=h) dt=Math.max(0,h-T); }
+    T+=dt;
+    if(T>=TOTAL){ T=TOTAL; if(!(voiceOn&&narrating())){ setPlaying(false); bigPlay.style.display='block'; bigPlay.textContent='↺'; } }
+  }
+  lastTs=ts; render(); requestAnimationFrame(frame);
+}
+cv.addEventListener('pointerdown',()=>{ if(!explore) setPlaying(!playing); });
+playBtn.onclick=()=>setPlaying(!playing);
+bigPlay.onclick=()=>setPlaying(true);
+$('restart').onclick=()=>{ seek(0); setPlaying(true); };
+voiceBtn.onclick=()=>{ voiceOn=!voiceOn; voiceBtn.textContent=voiceOn?'🔊 Voice on':'🔈 Voice off'; voiceBtn.classList.toggle('on',voiceOn); if(!voiceOn) stopVoice(); else capKey=null; };
+exBtn.onclick=()=>setExplore(!explore);
+$('exRate').oninput=e=>{ exRate=parseFloat(e.target.value); $('exRateV').textContent=exRate.toFixed(1); };
+$('exCopies').oninput=e=>{ setCopies(parseInt(e.target.value)); $('exCopiesV').textContent=exCopies; };
+$('exHC').onchange=e=>{ exHC=e.target.checked; };
+$('exCrash').onclick=()=>{ exCrash=!exCrash; $('exCrash').textContent=exCrash?'🔧 Recover copy 1':'💥 Crash copy 1'; $('exCrash').classList.toggle('on',exCrash); };
+$('exReset').onclick=()=>{ exSim.reset(); exCrash=false; $('exCrash').textContent='💥 Crash copy 1'; $('exCrash').classList.remove('on'); };
+$('bar').onclick=e=>{ setExplore(false); const r=$('bar').getBoundingClientRect(); seek((e.clientX-r.left)/r.width*TOTAL); };
+document.addEventListener('keydown',e=>{
+  if(['INPUT','SELECT'].includes(e.target.tagName)) return;
+  if(e.code==='Space'){ e.preventDefault(); setPlaying(!playing); }
+  if(e.code==='ArrowRight'){ const {i}=locate(T); if(i<S.length-1) seek(START[i+1]+.001); }
+  if(e.code==='ArrowLeft'){ const {i,lt}=locate(T); seek(START[lt<1.5&&i>0?i-1:i]+.001); }
+});
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Same code, new home · Deploy to the cloud</title>
+<meta name="video-id" content="s05a">
+<meta name="section" content="Deploy to the cloud">
+<style>
+  :root{--blue:#58C4DD;--yellow:#F7D96F;--grey:#8a8a8a}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0b0b0d;color:#e8e8e8;font-family:Georgia,'Times New Roman',serif;display:flex;justify-content:center;padding:24px 16px 40px;min-height:100vh}
+  .wrap{width:100%;max-width:1100px}
+  header{margin-bottom:16px;display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+  header h1{font-weight:normal;font-size:28px}
+  header h1 span{color:var(--blue)}
+  header p{color:var(--grey);font-style:italic;margin-top:4px;font-size:15px}
+  .ep{font-family:Consolas,monospace;font-size:12px;color:#666;border:1px solid #26262c;border-radius:999px;padding:4px 12px}
+  .stage{position:relative;background:#000;border-radius:12px;overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,.7),0 0 0 1px #1f1f24}
+  canvas{display:block;width:100%;height:auto;cursor:pointer}
+  #bigplay{position:absolute;inset:0;margin:auto;width:96px;height:96px;border-radius:50%;border:2px solid var(--blue);background:rgba(88,196,221,.08);color:var(--blue);font-size:36px;cursor:pointer;transition:transform .25s,background .25s;padding-left:6px}
+  #bigplay:hover{transform:scale(1.08);background:rgba(88,196,221,.18)}
+  .caption{min-height:70px;padding:16px 8px 6px;text-align:center;font-size:20px;line-height:1.45;color:#ddd}
+  .controls{display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap}
+  .controls button,.explore button{background:#16161a;border:1px solid #2a2a30;color:#ddd;border-radius:8px;height:38px;min-width:42px;padding:0 12px;font-size:15px;cursor:pointer;font-family:inherit;transition:border-color .2s,color .2s}
+  .controls button:hover,.explore button:hover{border-color:var(--blue);color:var(--blue)}
+  .controls button.on{border-color:var(--yellow);color:var(--yellow)}
+  .explore button.pick.on{background:var(--yellow);color:#000;border-color:var(--yellow)}
+  .bar{position:relative;flex:1;min-width:160px;height:8px;background:#1c1c22;border-radius:6px;cursor:pointer}
+  .fill{position:absolute;left:0;top:0;bottom:0;background:var(--blue);border-radius:6px;width:0}
+  .tick{position:absolute;top:-3px;width:2px;height:14px;background:#444}
+  #time{font-family:Consolas,monospace;font-size:13px;color:var(--grey);min-width:92px;text-align:right}
+  .explore{display:none;flex-wrap:wrap;align-items:center;gap:10px 14px;margin-top:14px;padding:14px 16px;border:1px solid #2c2c33;border-radius:10px;background:#111115;font-family:Consolas,monospace;font-size:13px;color:#bbb}
+  .explore.show{display:flex}
+  .explore .sep{width:1px;height:28px;background:#2c2c33;margin:0 6px}
+  .explore #exH{border-color:#5CD0B3;color:#5CD0B3}
+  .explore #exP{border-color:#58C4DD;color:#58C4DD}
+  .chapters{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+  .chapters button{background:transparent;border:1px solid #26262c;color:#9a9a9a;border-radius:999px;padding:6px 14px;font-size:13px;cursor:pointer;font-family:Consolas,monospace;transition:all .2s}
+  .chapters button:hover{color:#fff;border-color:#555}
+  .chapters button.active{color:#000;background:var(--blue);border-color:var(--blue)}
+  .hint{color:#555;font-size:12px;margin-top:14px;font-family:Consolas,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Same code, <span>new home</span></h1>
+      <p>From your Codespace to Azure: what changes, what doesn't, and who looks after what</p>
+    </div>
+    <span class="ep" style="color:#F7D96F;border-color:#3a3a2a">Section: Deploy to the cloud</span>
+  </header>
+  <div class="stage">
+    <canvas id="cv" aria-label="Animated explainer"></canvas>
+    <button id="bigplay" aria-label="Play">▶</button>
+  </div>
+  <div class="caption" id="cap" aria-live="polite"></div>
+  <div class="controls">
+    <button id="play" aria-label="Play or pause">▶</button>
+    <button id="restart" aria-label="Restart">↺</button>
+    <div class="bar" id="bar"><div class="fill" id="fill"></div></div>
+    <span id="time">0:00 / 0:00</span>
+    <button id="voice">🔈 Voice off</button>
+    <button id="exploreBtn">🔍 Who looks after it?</button>
+  </div>
+  <div class="explore" id="explorePanel">
+    <span>service model:</span>
+    <button class="pick" data-m="0">On-premise</button>
+    <button class="pick" data-m="1">IaaS</button>
+    <button class="pick on" data-m="2">PaaS</button>
+    <button class="pick" data-m="3">SaaS</button>
+    <span class="sep"></span>
+    <span>who looks after this task?</span>
+    <button id="exH">Harbourside</button>
+    <button id="exP">The provider</button>
+    <button id="exN">Next task →</button>
+  </div>
+  <div class="chapters" id="chapters"></div>
+  <div class="hint">Space = play/pause · ← → = chapters · the quiz uses the five layers of the responsibility stack</div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const cv=$('cv'), ctx=cv.getContext('2d');
+const W=1280, H=720; let dpr=1;
+function resize(){ dpr=Math.min(window.devicePixelRatio||1,2); cv.width=W*dpr; cv.height=H*dpr; }
+resize(); addEventListener('resize', resize);
+
+const C={white:'#ECECEC',grey:'#7d7d7d',dim:'#444',blue:'#58C4DD',yellow:'#F7D96F',green:'#83C167',red:'#FC6255',teal:'#5CD0B3',purple:'#B189C6',orange:'#FF9A4D'};
+const SERIF='Georgia, "Times New Roman", serif', MONO='Consolas, "SFMono-Regular", "Liberation Mono", monospace';
+const clamp=(x,a=0,b=1)=>Math.max(a,Math.min(b,x));
+const smooth=x=>{x=clamp(x);return x*x*(3-2*x);};
+const P=(t,s,d)=>smooth((t-s)/d);
+const lerp=(a,b,p)=>a+(b-a)*p;
+
+/* ---------- drawing helpers ---------- */
+const fontStr=(size,font,style)=>[style,size+'px',font].filter(Boolean).join(' ');
+function txt(s,x,y,o={}){
+  const {size=28,color=C.white,align='center',alpha=1,font=SERIF,style='',p=1}=o;
+  if(alpha<=0||p<=0) return;
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.font=fontStr(size,font,style); ctx.fillStyle=color; ctx.textAlign=align; ctx.textBaseline='middle';
+  if(p<1){ const w=ctx.measureText(s).width, x0=align==='center'?x-w/2:align==='right'?x-w:x; ctx.beginPath(); ctx.rect(x0-4,y-size,(w+8)*p,size*2); ctx.clip(); }
+  ctx.fillText(s,x,y); ctx.restore();
+}
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function box(x,y,w,h,o={}){
+  const {stroke=C.white,fill=null,alpha=1,lw=2,r=10,p=1,dash=null}=o; if(alpha<=0||p<=0) return;
+  ctx.save(); ctx.globalAlpha*=alpha; rr(x,y,w,h,r); if(fill){ctx.fillStyle=fill;ctx.fill();}
+  const L=2*(w+h); if(p<1) ctx.setLineDash([L*p,L]); else if(dash) ctx.setLineDash(dash);
+  ctx.strokeStyle=stroke; ctx.lineWidth=lw; ctx.stroke(); ctx.restore();
+}
+function rect(x,y,w,h,color,alpha=1){ if(alpha<=0||w<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.fillStyle=color; ctx.fillRect(x,y,w,h); ctx.restore(); }
+function seg(x1,y1,x2,y2,o={}){
+  const {color=C.white,lw=2,alpha=1,p=1,dash=null}=o; if(p<=0||alpha<=0) return;
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.lineCap='round'; if(dash) ctx.setLineDash(dash);
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(lerp(x1,x2,p),lerp(y1,y2,p)); ctx.stroke(); ctx.restore();
+}
+function arrow(x1,y1,x2,y2,o={}){
+  const {color=C.white,p=1,alpha=1,lw=2.2,head=10}=o; if(p<=0||alpha<=0) return;
+  seg(x1,y1,x2,y2,{color,lw,alpha,p});
+  const x=lerp(x1,x2,p), y=lerp(y1,y2,p), a=Math.atan2(y2-y1,x2-x1);
+  ctx.save(); ctx.globalAlpha*=alpha; ctx.fillStyle=color; ctx.beginPath(); ctx.moveTo(x,y);
+  ctx.lineTo(x-head*Math.cos(a-.4),y-head*Math.sin(a-.4)); ctx.lineTo(x-head*Math.cos(a+.4),y-head*Math.sin(a+.4)); ctx.closePath(); ctx.fill(); ctx.restore();
+}
+function ring(x,y,r,color,alpha=1,lw=2){ if(alpha<=0) return; ctx.save(); ctx.globalAlpha*=alpha; ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke(); ctx.restore(); }
+function person(x,y,col,a,s=1){ if(a<=0) return; ring(x,y-16*s,10*s,col,a,2.2); ctx.save(); ctx.globalAlpha*=a; ctx.strokeStyle=col; ctx.lineWidth=2.2; ctx.beginPath(); ctx.arc(x,y+20*s,18*s,Math.PI,0); ctx.stroke(); ctx.restore(); }
+function tag(x,y,s,col,a,size=14){ if(a<=0) return; ctx.save(); ctx.font=fontStr(size,MONO,''); const w=ctx.measureText(s).width+20; ctx.restore();
+  box(x-w/2,y-size,w,size*2,{stroke:col,fill:'rgba(0,0,0,.92)',alpha:a,r:6}); txt(s,x,y,{size,font:MONO,color:col,alpha:a}); }
+function fileIcon(x,y,w,h,label,col,a){ if(a<=0) return;
+  ctx.save(); ctx.globalAlpha*=a; ctx.strokeStyle=col; ctx.lineWidth=2; ctx.fillStyle='rgba(0,0,0,.92)';
+  ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+w-14,y); ctx.lineTo(x+w,y+14); ctx.lineTo(x+w,y+h); ctx.lineTo(x,y+h); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+  txt(label,x+w/2,y+h/2,{size:13,font:MONO,color:col,alpha:a}); }
+function lock(x,y,col,a){ if(a<=0) return; box(x-12,y-4,24,20,{stroke:col,alpha:a,r:3}); ctx.save(); ctx.globalAlpha*=a; ctx.strokeStyle=col; ctx.lineWidth=2.2; ctx.beginPath(); ctx.arc(x,y-4,8,Math.PI,0); ctx.stroke(); ctx.restore(); }
+function globe(x,y,r,col,a){ if(a<=0) return; ring(x,y,r,col,a,2); ctx.save(); ctx.globalAlpha*=a; ctx.strokeStyle=col; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.ellipse(x,y,r*.45,r,0,0,Math.PI*2); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x-r,y); ctx.lineTo(x+r,y); ctx.stroke(); ctx.restore(); }
+
+/* ---------- the responsibility stack (slide 36) ---------- */
+const LAYERS=['Data & users','Application','Runtime & OS','Virtualisation','Hardware & building'];
+const MODELS=['On-premise','IaaS','PaaS','SaaS'], OURS=[5,3,2,1];
+const PROVIDER=['—','Azure','Azure','Vendor'];
+const GX=c=>320+c*115, GY=r=>190+r*68;
+function drawStack(o={}){
+  const {a=1,cols=[1,1,1,1],hiCol=-1,hiRow=-1,ask=null}=o; if(a<=0) return;
+  LAYERS.forEach((l,r)=>{ const y=GY(r); txt(l,300,y+30,{size:16,align:'right',alpha:a,color:r===hiRow?C.yellow:C.white}); });
+  MODELS.forEach((m,c)=>{ const ca=a*cols[c]; if(ca<=0) return; const x=GX(c), hi=c===hiCol;
+    txt(m,x+52,160,{size:16,font:MONO,color:hi?C.yellow:C.grey,alpha:ca});
+    if(hi) box(x-6,176,117,355,{stroke:C.yellow,lw:2.5,alpha:ca});
+    LAYERS.forEach((_,r)=>{ const y=GY(r), ours=r<OURS[c], col=ours?C.teal:C.blue, q=ask&&ask.c===c&&ask.r===r;
+      box(x,y,105,60,{stroke:q?C.yellow:col,fill:ours?'rgba(92,208,179,.14)':'rgba(88,196,221,.10)',alpha:ca,lw:q?3:1.5,r:6});
+      txt(ours?'Harbourside':PROVIDER[c],x+52,y+30,{size:13,color:col,alpha:ca}); });
+    if(OURS[c]<5) seg(x-4,GY(OURS[c])-4,x+109,GY(OURS[c])-4,{color:C.yellow,lw:3,alpha:ca}); });
+  if(hiRow>=0) box(60,GY(hiRow)-4,770,68,{stroke:C.yellow,lw:2,alpha:a,dash:[6,5]});
+}
+
+/* ======================================================================
+   SCENES
+   ====================================================================== */
+const S=[
+/* 1 ─ Same code */
+{title:'Same code. What changed?',dur:21,
+ caps:[[0,"In development, the API ran in a Codespace. Then the same code ran on Azure."],
+       [5.5,"Same files: app.py, the model file, and requirements.txt. Nothing in the code changed."],
+       [11.5,"What changed is where it runs, who can reach it, and who looks after what."],
+       [17.5,"Let's take those one at a time."]],
+ draw(t){
+   txt('SECTION · DEPLOY TO THE CLOUD',640,110,{size:15,font:MONO,color:C.yellow,alpha:P(t,.2,.8)*(1-P(t,2.4,.5))});
+   const a1=P(t,.3,.8), a2=P(t,2.8,.8);
+   box(80,150,460,320,{stroke:C.white,alpha:a1,p:a1}); txt('YOUR CODESPACE',310,185,{size:18,font:MONO,color:C.grey,alpha:a1});
+   person(310,260,C.blue,a1); txt('you, in your browser',310,320,{size:16,style:'italic',alpha:a1});
+   box(160,350,300,60,{stroke:C.teal,alpha:a1}); txt('FastAPI + model',310,380,{size:17,alpha:a1});
+   box(740,150,460,320,{stroke:C.blue,lw:2.5,alpha:a2,p:a2}); txt('AZURE APP SERVICE',970,185,{size:18,font:MONO,color:C.blue,alpha:a2});
+   globe(970,262,34,C.blue,a2); txt('a public address',970,320,{size:16,style:'italic',alpha:a2});
+   box(820,350,300,60,{stroke:C.teal,alpha:a2}); txt('FastAPI + model',970,380,{size:17,alpha:a2});
+   ['app.py','router.joblib','requirements.txt'].forEach((f,i)=>{ const m=P(t,6+i*.7,2), x=lerp(110+i*150,770+i*150,m);
+     fileIcon(x,482,140,40,f,C.yellow,P(t,5.8+i*.7,.4)*(1-P(t,10.8,.5))); });
+   txt('same files, moved across: not one line changed',640,545,{size:16,font:MONO,color:C.yellow,alpha:P(t,7,.6)*(1-P(t,10.8,.5))});
+   const chips=[['where it runs',C.white],['who can reach it',C.blue],['who looks after what',C.teal]];
+   chips.forEach(([s,col],i)=>tag(330+i*310,560,s,col,P(t,11.8+i*.9,.5),17));
+   txt('What changed?',640,630,{size:34,color:C.yellow,p:P(t,17.6,1.4)});
+ }},
+
+/* 2 ─ Who can reach it? */
+{title:'Who can reach it?',dur:30,
+ caps:[[0,"In the Codespace, the address is private. Only you, signed in to GitHub, can reach it."],
+       [6.5,"And it stops when you close it, or after a while of doing nothing."],
+       [11.5,"On Azure, the address is public and always on. Anyone on the internet can find it."],
+       [17.5,"That is why the cloud version needs an API key. No key, or a wrong one: 401."],
+       [24,"A public address turns a demo into a service, with real users and real risks."]],
+ draw(t){
+   const a1=P(t,.3,.8);
+   box(80,140,460,380,{stroke:C.white,alpha:a1}); txt('CODESPACE',310,170,{size:17,font:MONO,color:C.grey,alpha:a1});
+   box(220,290,180,70,{stroke:C.teal,alpha:a1}); txt('your API',310,325,{size:17,alpha:a1}); lock(310,255,C.yellow,a1);
+   person(150,430,C.blue,a1); txt('you',150,488,{size:14,style:'italic',color:C.grey,alpha:a1});
+   arrow(175,410,240,362,{color:C.blue,p:P(t,1.5,.7)}); txt('signed in to GitHub',150,385,{size:12,font:MONO,color:C.grey,alpha:P(t,2,.6)});
+   const zz=P(t,6.6,.6); txt('z z z',470,230,{size:26,font:MONO,color:C.grey,alpha:zz}); txt('stops when closed or idle',310,480,{size:15,style:'italic',color:C.orange,alpha:zz});
+   const a2=P(t,11.6,.8);
+   box(740,140,460,380,{stroke:C.blue,lw:2.5,alpha:a2}); txt('AZURE · always on',970,170,{size:17,font:MONO,color:C.blue,alpha:a2});
+   box(880,290,180,70,{stroke:C.teal,alpha:a2}); txt('your API',970,325,{size:17,alpha:a2}); globe(970,240,24,C.blue,a2);
+   const ppl=[[790,450,C.blue,true],[870,470,C.blue,true],[1070,470,C.blue,true],[1150,450,C.red,false]];
+   ppl.forEach(([x,y,col,ok],i)=>{ const pa=a2*P(t,12.4+i*.4,.5); person(x,y,ok?C.blue:C.red,pa,.8);
+     if(ok) arrow(x,y-36,lerp(x,970,.55),365,{color:C.green,lw:1.6,p:P(t,18,.7),alpha:pa}); });
+   txt('?',1150,395,{size:24,color:C.red,alpha:a2*P(t,13.6,.5)});
+   tag(830,395,'X-API-Key ✓',C.green,P(t,18.2,.5),12);
+   arrow(1135,410,1062,362,{color:C.red,lw:1.6,p:P(t,19,.6)}); tag(1120,560,'401 · we don’t know who you are',C.red,P(t,19.8,.5),13);
+   txt('demo  →  service',640,620,{size:32,color:C.yellow,p:P(t,24.2,1.4)});
+   txt('real users · real risks · real responsibilities',640,665,{size:17,style:'italic',color:C.grey,alpha:P(t,25.6,.6)});
+ }},
+
+/* 3 ─ What happens when you deploy */
+{title:'What happens when you deploy',dur:32,
+ caps:[[0,"What actually happens when you deploy? Four steps."],
+       [3.5,"One: your files are packed and uploaded to Azure."],
+       [7,"Two: Azure reads requirements.txt and installs the same versions you used. That is why the versions are pinned."],
+       [14,"Three: Azure starts your app with the start command, the same job uvicorn did in your Codespace."],
+       [21,"Four: Azure gives it a public address, and keeps it running. If it crashes, Azure restarts it."],
+       [28,"None of these steps changed a line of your code."]],
+ draw(t){
+   tag(640,100,'az webapp up',C.yellow,P(t,.4,.6),20);
+   const steps=[['1','pack & upload','your files → a zip → Azure',3.6],['2','install','pip install -r requirements.txt',7.1],
+                ['3','start','gunicorn … app:app',14.1],['4','serve','public address · kept running',21.1]];
+   steps.forEach(([n,h,d,s],i)=>{ const x=70+i*290, a=P(t,s,.6), on=t>=s&&(i===3||t<steps[i+1][3]);
+     box(x,190,260,170,{stroke:on?C.yellow:C.teal,lw:on?3:2,alpha:a,fill:'rgba(8,8,11,.9)'});
+     txt(n,x+30,222,{size:28,font:MONO,color:C.yellow,alpha:a}); txt(h,x+150,222,{size:22,alpha:a});
+     txt(d,x+130,290,{size:13,font:MONO,color:C.grey,alpha:a});
+     if(i<3) arrow(x+262,275,x+288,275,{alpha:P(t,steps[i+1][3]-.3,.4)}); });
+   const pa=P(t,9.5,.6)*(1-P(t,13.6,.4));
+   box(330,400,620,120,{stroke:C.orange,alpha:pa,fill:'rgba(8,8,11,.92)'});
+   txt('requirements.txt  ·  scikit-learn==X.Y.Z  (pinned)',640,430,{size:15,font:MONO,color:C.orange,alpha:pa});
+   txt('a model saved with one scikit-learn version',640,465,{size:16,alpha:pa});
+   txt('may not load in another: pinned versions matter',640,490,{size:16,alpha:pa});
+   tag(640,450,'same job as: uvicorn app:app --reload',C.teal,P(t,15.5,.5)*(1-P(t,20.6,.4)),15);
+   const ua=P(t,22,.6);
+   tag(640,430,'https://harbourside-router-….azurewebsites.net',C.blue,ua,15);
+   txt('crash → Azure restarts it',640,480,{size:17,style:'italic',color:C.green,alpha:P(t,24.5,.6)});
+   txt('0 lines of code changed',640,600,{size:32,color:C.yellow,p:P(t,28.2,1.4)});
+ }},
+
+/* 4 ─ Who looks after what? */
+{title:'Who looks after what?',dur:34,
+ caps:[[0,"Who looks after each layer?"],
+       [3.5,"On-premise, Harbourside looks after everything, from the building to the data."],
+       [9,"With IaaS, Azure takes the hardware and virtualisation. Harbourside still patches the operating system."],
+       [15.5,"With PaaS, our App Service, Azure also runs the operating system and the Python runtime. We bring only the app and the data."],
+       [24,"With SaaS, we would just use someone else's finished software."],
+       [29,"Even then, the data and the users are always Harbourside's job."]],
+ draw(t){
+   const cols=[P(t,3.6,.8),P(t,9.1,.8),P(t,15.6,.8),P(t,24.1,.8)];
+   const hiCol=t>=29?-1:t>=24?3:t>=15.5?2:t>=9?1:t>=3.5?0:-1;
+   drawStack({a:P(t,.3,.8),cols,hiCol,hiRow:t>=29?0:-1});
+   txt('Harbourside',900,200,{size:16,color:C.teal,align:'left',alpha:P(t,.8,.6)}); txt('the provider',900,228,{size:16,color:C.blue,align:'left',alpha:P(t,.8,.6)});
+   rect(870,192,18,16,C.teal,.6*P(t,.8,.6)); rect(870,220,18,16,C.blue,.5*P(t,.8,.6));
+   const notes=[[3.6,'You own the building, the servers, everything.'],[9.1,'You still patch the OS and install Python.'],
+                [15.6,'Our App Service: we bring the app and the data.'],[24.1,'You configure it and use it. That is all.'],[29.1,'Data and users: always yours.']];
+   notes.forEach(([s,n],i)=>{ const next=notes[i+1]?notes[i+1][0]:99; txt(n,870,330,{size:19,align:'left',alpha:P(t,s,.5)*(1-P(t,next-.3,.3)),color:i===4?C.yellow:C.white}); });
+   tag(GX(2)+52,570,'← our App Service',C.yellow,P(t,16.5,.5)*(1-P(t,23.6,.4)),14);
+   txt('the yellow line moves up as the provider takes more',640,640,{size:16,style:'italic',color:C.grey,alpha:P(t,12,.6)});
+ }},
+
+/* 5 ─ What stays your job */
+{title:'What stays your job',dur:26,
+ caps:[[0,"PaaS takes a lot off your hands. But some things are always yours."],
+       [5,"Your code and its bugs. Your model, and the threshold you chose."],
+       [10,"Your secrets, like the API key. Keep it out of the code and out of GitHub."],
+       [16,"The data, and the people it belongs to. And the bill."],
+       [20.5,"Azure keeps the platform healthy. Whether the service is right is still up to you."]],
+ draw(t){
+   txt('Even on PaaS, these are yours',640,95,{size:34,p:P(t,.3,1.4)});
+   const items=[['</>','your code and its bugs',5.1,C.teal],['0.60','your model and threshold',7.2,C.yellow],['🔑','your secrets (the API key)',10.1,C.orange],
+                ['👥','the data and the people',16.1,C.purple],['£','the bill',18.2,C.green]];
+   items.forEach(([ic,l,s,col],i)=>{ const x=105+i*220, a=P(t,s,.6);
+     box(x,180,200,220,{stroke:col,alpha:a,fill:'rgba(8,8,11,.9)'});
+     txt(ic,x+100,260,{size:ic.length>2?30:40,font:ic==='0.60'||ic==='</>'?MONO:SERIF,color:col,alpha:a});
+     const parts=l.split(' '); const mid=Math.ceil(parts.length/2);
+     txt(parts.slice(0,mid).join(' '),x+100,340,{size:17,alpha:a}); txt(parts.slice(mid).join(' '),x+100,364,{size:17,alpha:a}); });
+   tag(640,450,'API_KEY → an app setting, never in app.py or on GitHub',C.orange,P(t,12,.5)*(1-P(t,20.2,.4)),14);
+   const fa=P(t,20.7,.6);
+   box(240,480,800,130,{stroke:'#33333b',alpha:fa,fill:'rgba(8,8,11,.92)'});
+   txt('Azure: is the platform healthy?',640,520,{size:22,color:C.blue,alpha:fa});
+   txt('You: is the service right?',640,565,{size:22,color:C.teal,alpha:P(t,22.3,.6)});
+ }},
+
+/* 6 ─ Which model fits? */
+{title:'Which model fits?',dur:29,
+ caps:[[0,"Quick check. Which service model fits each job?"],
+       [3.5,"Our small routing API: PaaS. We bring the code, Azure runs the platform."],
+       [9,"A large language model that needs special GPU drivers: IaaS, a virtual machine we control."],
+       [15,"Staff email and calendars: SaaS. Nobody at Harbourside should be building that."],
+       [21,"A device on a ward that must work without the internet: on-premise, or at the edge."]],
+ draw(t){
+   const bins=['On-premise / edge','IaaS','PaaS','SaaS'], bc=[C.orange,C.purple,C.teal,C.blue];
+   bins.forEach((b,i)=>{ const x=70+i*290, a=P(t,.6+i*.2,.6);
+     box(x,330,260,280,{stroke:bc[i],alpha:a}); txt(b,x+130,360,{size:18,font:MONO,color:bc[i],alpha:a}); });
+   const cards=[['the routing API',2,3.6],['an LLM with special GPU drivers',1,9.1],['staff email and calendars',3,15.1],['a ward device, no internet',0,21.1]];
+   cards.forEach(([s,b,t0])=>{ if(t<t0) return; const m=P(t,t0+1.6,1), x=lerp(640,70+b*290+130,m), y=lerp(200,450,m);
+     box(x-125,y-24,250,48,{stroke:m>.9?bc[b]:C.white,fill:'rgba(0,0,0,.95)',alpha:P(t,t0,.4)}); txt(s,x,y,{size:15,alpha:P(t,t0,.4)}); });
+   txt('Which service model fits?',640,110,{size:34,color:C.yellow,p:P(t,.2,1.4)});
+   txt('control  ⇄  convenience',640,670,{size:22,font:MONO,color:C.grey,alpha:P(t,25,.8)});
+ }},
+
+/* 7 ─ Try it */
+{title:'Try it: the cloud version',dur:25,
+ caps:[[0,"Now try it yourself."],
+       [3,"Open the address ending in /docs, and click Authorize."],
+       [7.5,"Paste the API key, then send a message to POST /predictions. You should get 200."],
+       [13.5,"Now use a wrong key. The answer is 401: we don't know who you are."],
+       [19.5,"Same code as your Codespace. Different home, different neighbours."]],
+ draw(t){
+   const a=P(t,.3,.8);
+   box(150,90,980,520,{stroke:'#3a3a44',alpha:a,fill:'rgba(14,14,18,.96)'});
+   rect(152,92,976,40,'#1c1c22',a); [0,1,2].forEach(i=>ring(180+i*20,112,5,C.grey,a,1.5));
+   box(260,100,760,24,{stroke:'#33333b',alpha:a,r:12}); txt('https://harbourside-router-….azurewebsites.net/docs',640,112,{size:13,font:MONO,color:C.grey,alpha:a});
+   txt('Harbourside router',200,170,{size:24,align:'left',alpha:a});
+   const auth=t>=4&&t<7.5;
+   box(940,150,150,40,{stroke:auth?C.yellow:C.green,lw:auth?3:2,alpha:a}); txt('Authorize 🔓',1015,170,{size:15,font:MONO,color:C.green,alpha:a});
+   [['GET','/',C.blue],['GET','/model-info',C.blue],['POST','/predictions',C.green]].forEach(([m,p,col],i)=>{ const y=230+i*52, on=i===2&&t>=7.5;
+     box(190,y-20,900,40,{stroke:on?C.yellow:col,alpha:a,fill:'rgba(0,0,0,.6)',r:6});
+     box(200,y-12,70,24,{stroke:col,fill:col,alpha:a*.85,r:4}); txt(m,235,y,{size:13,font:MONO,color:'#000',alpha:a}); txt(p,290,y,{size:15,font:MONO,align:'left',alpha:a}); });
+   const da=P(t,4.4,.4)*(1-P(t,7.3,.3));
+   box(440,250,400,150,{stroke:C.yellow,alpha:da,fill:'rgba(0,0,0,.97)'}); txt('X-API-Key (apiKey)',640,285,{size:15,font:MONO,alpha:da});
+   box(480,310,320,34,{stroke:'#555',alpha:da,r:4}); txt('••••••••••••',640,327,{size:15,font:MONO,color:C.grey,alpha:da});
+   tag(640,375,'Authorize',C.green,da,13);
+   const wrong=t>=13.5, ra=P(t,8.5,.5);
+   box(190,400,900,180,{stroke:wrong?C.red:C.green,alpha:ra,fill:'rgba(0,0,0,.6)'});
+   txt('Request body:  {"message": "My laptop will not turn on"}',210,428,{size:14,font:MONO,align:'left',alpha:ra});
+   txt('Response',210,470,{size:14,font:MONO,color:C.grey,align:'left',alpha:ra});
+   txt(wrong?'401':'200',210,510,{size:30,font:MONO,color:wrong?C.red:C.green,align:'left',alpha:ra});
+   txt(wrong?'{"detail": "Missing or wrong API key"}':'{"team": "IT", "confidence": 0.8x, "human_review": false}',290,510,{size:15,font:MONO,color:wrong?C.red:C.green,align:'left',alpha:ra});
+   tag(980,450,wrong?'wrong key':'correct key',wrong?C.red:C.green,ra,13);
+   txt('Same code. Different home, different neighbours.',640,660,{size:24,color:C.yellow,p:P(t,19.7,1.6)});
+ }},
+
+/* 8 ─ Recap */
+{title:'Recap',dur:26,
+ caps:[[0,"Let's put it together."],
+       [2,"One. Same code. What changed is where it runs and who can reach it."],
+       [7,"Two. A public address needs a key. No key: 401."],
+       [11,"Three. With PaaS, we bring the app and the data. Azure runs the platform."],
+       [16.5,"Four. Data, users, secrets and the bill are always ours."],
+       [21.5,"Go deeper: what the code does line by line, how requests reach it, and how it copes when many arrive at once."]],
+ draw(t){
+   txt('Same code, new home',640,105,{size:46,p:P(t,.2,1.5)});
+   const L=[["Same code. What changed is where it runs and who can reach it.",2.1],["A public address needs a key. No key → 401.",7.1],
+            ["PaaS: we bring the app and the data, Azure runs the platform.",11.1],["Data, users, secrets and the bill are always ours.",16.6]];
+   L.forEach(([s,t0],i)=>{ const y=225+i*95;
+     txt(String(i+1),150,y,{size:40,color:C.blue,alpha:P(t,t0,.6)});
+     txt(s,205,y,{size:25,align:'left',p:P(t,t0+.2,1.6)}); });
+   txt('Go deeper',640,622,{size:16,font:MONO,color:C.grey,alpha:P(t,21.7,1)});
+   txt('Inside the code · The journey of a request · Monday, 09:00',640,655,{size:18,font:MONO,color:C.yellow,alpha:P(t,22.3,1)});
+ }}
+];
+
+/* ======================================================================
+   EXPLORE: who looks after it? (quiz)
+   ====================================================================== */
+const TASKS=[['Replace a failed hard disk',4],['Keep the data centre cool and powered',4],['Run the virtual machines',3],
+  ['Patch the operating system',2],['Upgrade the Python runtime',2],['Fix a bug in predict()',1],['Choose the confidence threshold',1],
+  ['Keep the API key secret',0],['Decide who can read staff messages',0],['Decide how long to keep tickets',0]];
+const QZ={model:2,order:[],i:0,answer:null,score:0,tries:0};
+function shuffle(){ QZ.order=TASKS.map((_,i)=>i).sort(()=>Math.random()-.5); QZ.i=0; QZ.answer=null; }
+shuffle();
+function renderExplore(){
+  txt('WHO LOOKS AFTER IT? · pick a service model, then answer',40,30,{size:14,font:MONO,color:C.yellow,align:'left'});
+  const [task,layer]=TASKS[QZ.order[QZ.i]], ours=layer<OURS[QZ.model], show=QZ.answer!==null;
+  const cols=[0,1,2,3].map(c=>c===QZ.model?1:.18);
+  drawStack({cols,hiCol:QZ.model,hiRow:show?layer:-1,ask:show?{c:QZ.model,r:layer}:null});
+  box(880,170,360,360,{stroke:'#33333b',fill:'rgba(8,8,11,.95)'});
+  txt('task',1060,200,{size:14,font:MONO,color:C.grey});
+  const words=task.split(' '), mid=Math.ceil(words.length/2);
+  txt(words.slice(0,mid).join(' '),1060,245,{size:22}); txt(words.slice(mid).join(' '),1060,275,{size:22});
+  txt(`model: ${MODELS[QZ.model]}`,1060,320,{size:16,font:MONO,color:C.yellow});
+  if(!show) txt('Harbourside, or the provider?',1060,380,{size:17,style:'italic',color:C.grey});
+  else { const right=QZ.answer===ours;
+    txt(right?'✓ correct':'✗ not quite',1060,370,{size:24,color:right?C.green:C.red});
+    txt(`layer: ${LAYERS[layer]}`,1060,410,{size:15,font:MONO});
+    txt(`→ ${ours?'Harbourside':(QZ.model===3?'the vendor':'Azure')} looks after it`,1060,440,{size:16,color:ours?C.teal:C.blue}); }
+  txt(`score ${QZ.score} / ${QZ.tries}`,1060,500,{size:16,font:MONO,color:C.grey});
+  txt('Tip: try the same task under each service model, and watch who owns it change.',640,660,{size:15,style:'italic',color:C.grey});
+}
+function answer(h){ if(QZ.answer!==null) return; QZ.answer=h; QZ.tries++; const [,layer]=TASKS[QZ.order[QZ.i]]; if(h===(layer<OURS[QZ.model])) QZ.score++; }
+function nextTask(){ QZ.i++; if(QZ.i>=QZ.order.length) shuffle(); QZ.answer=null; }
+
+/* ======================================================================
+   PLAYER
+   ====================================================================== */
+const START=[]; let TOTAL=0; S.forEach(s=>{START.push(TOTAL); TOTAL+=s.dur;});
+let T=0, playing=false, lastTs=null, voiceOn=false, capKey=null, explore=false, frameDt=0;
+const capEl=$('cap'), fillEl=$('fill'), timeEl=$('time'), playBtn=$('play'), bigPlay=$('bigplay'), voiceBtn=$('voice'), exBtn=$('exploreBtn');
+S.forEach((s,i)=>{
+  if(i>0){ const tk=document.createElement('div'); tk.className='tick'; tk.style.left=(START[i]/TOTAL*100)+'%'; $('bar').appendChild(tk); }
+  const b=document.createElement('button'); b.textContent=`${i+1} · ${s.title}`;
+  b.onclick=()=>{ setExplore(false); seek(START[i]+.001); if(!playing) setPlaying(true); };
+  $('chapters').appendChild(b);
+});
+const chapBtns=[...$('chapters').children];
+const locate=time=>{ for(let i=S.length-1;i>=0;i--) if(time>=START[i]) return {i,lt:Math.min(time-START[i],S[i].dur)}; return {i:0,lt:0}; };
+const fmt=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+
+/* ---------- NARRATOR: every word is spoken before the video moves on ---------- */
+const SAY=[[/“|”|"/g,''],[/\bIaaS\b/g,'I A A S'],[/\bPaaS\b/g,'P A A S'],[/\bSaaS\b/g,'S A A S'],[/requirements\.txt/g,'requirements dot T X T'],
+  [/app\.py/g,'app dot pie'],[/\bLLM\b/g,'L L M'],[/\bGPU\b/g,'G P U'],[/\bOS\b/g,'O S'],[/\bIT\b/g,'I T'],[/\bHR\b/g,'H R'],
+  [/(\d{2}):(\d{2})/g,(m,h,mi)=>`${+h} ${mi==='00'?"o'clock":mi}`],[/\//g,' slash ']];
+const NAR={u:null,speaking:false,until:0,voice:null,list:[]};
+const HOLDS=[]; S.forEach((s,i)=>{ s.caps.forEach((c,k)=>{ if(k>0) HOLDS.push(START[i]+c[0]-.02); }); HOLDS.push(START[i]+s.dur-.6); }); HOLDS.sort((a,b)=>a-b);
+const vSel=document.createElement('select'); vSel.title='Narrator voice';
+vSel.style.cssText='background:#16161a;border:1px solid #2a2a30;color:#ddd;border-radius:8px;height:38px;padding:0 8px;font-family:inherit;font-size:13px;max-width:200px';
+voiceBtn.after(vSel);
+const vNorm=l=>(l||'').replace('_','-');
+const vRank=v=>{ const l=vNorm(v.lang); return /^en-GB/i.test(l)?0:/^en-US/i.test(l)?1:/^en/i.test(l)?2:9; };
+const vGood=v=>/natural|online|google|neural|premium|enhanced/i.test(v.name)?1:0;
+const vName=v=>v.name.replace(/^(Microsoft|Google|Apple) /,'').replace(/\s*-\s*English.*$/,'').slice(0,34);
+function pickVoices(){
+  if(!('speechSynthesis' in window)) return;
+  const vs=speechSynthesis.getVoices().filter(v=>vRank(v)<9).sort((a,b)=>vRank(a)-vRank(b)||vGood(b)-vGood(a));
+  if(!vs.length) return;
+  NAR.list=vs; vSel.innerHTML='';
+  const label={0:'🇬🇧 UK English',1:'🇺🇸 US English',2:'Other English'}; let g=null, og=null;
+  vs.forEach((v,i)=>{
+    const r=vRank(v);
+    if(r!==g){ g=r; og=document.createElement('optgroup'); og.label=label[r]; vSel.appendChild(og); }
+    const o=document.createElement('option'); o.value=i; o.textContent=vName(v)+' · '+vNorm(v.lang); og.appendChild(o);
+  });
+  if(!vs.some(v=>vRank(v)===0)){
+    const og2=document.createElement('optgroup'); og2.label='No UK voice on this device';
+    const o=document.createElement('option'); o.value='help'; o.textContent='➕ How to add a UK English voice'; og2.appendChild(o); vSel.appendChild(og2);
+  }
+  const cur=NAR.voice?vs.findIndex(v=>v.name===NAR.voice.name):-1, i=cur>=0?cur:0;
+  vSel.value=String(i); NAR.voice=vs[i];
+}
+if('speechSynthesis' in window){ speechSynthesis.onvoiceschanged=pickVoices; pickVoices(); [300,1200,3500].forEach(ms=>setTimeout(pickVoices,ms)); }
+else vSel.style.display='none';
+vSel.onchange=()=>{
+  if(vSel.value==='help'){
+    capEl.textContent='To add a UK voice — Windows: Settings → Time & language → Speech → Add voices → English (United Kingdom). Mac: System Settings → Accessibility → Spoken Content → System voice → Manage Voices → English (UK). Or open this page in Microsoft Edge or Google Chrome, which include free UK voices. Then reload the page.';
+    vSel.value=String(Math.max(0,NAR.list.indexOf(NAR.voice))); return;
+  }
+  NAR.voice=NAR.list[+vSel.value]; stopVoice(); capKey=null;
+};
+function speak(s){
+  if(!voiceOn||!playing||!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const text=SAY.reduce((a,[r,v])=>a.replace(r,v),s);
+  const u=new SpeechSynthesisUtterance(text);
+  if(NAR.voice){ u.voice=NAR.voice; u.lang=NAR.voice.lang; } else u.lang='en-GB';
+  u.rate=1;
+  NAR.u=u; NAR.speaking=true; NAR.until=performance.now()+(text.split(/\s+/).length/2+4)*1000;
+  u.onend=u.onerror=()=>{ if(NAR.u===u) NAR.speaking=false; };
+  setTimeout(()=>{ if(NAR.u===u) speechSynthesis.speak(u); },80);
+}
+function stopVoice(){ NAR.speaking=false; NAR.u=null; if('speechSynthesis' in window) speechSynthesis.cancel(); }
+function narrating(){ if(!NAR.speaking) return false; if(performance.now()>NAR.until){ NAR.speaking=false; return false; } return true; }
+
+function updateCaption(i,lt){
+  const caps=S[i].caps; let ci=0; caps.forEach((c,k)=>{ if(lt>=c[0]) ci=k; });
+  const key=i+'-'+ci; if(key!==capKey){ capKey=key; capEl.textContent=caps[ci][1]; speak(caps[ci][1]); }
+}
+function render(){
+  ctx.setTransform(dpr,0,0,dpr,0,0); ctx.globalAlpha=1; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+  if(explore){ renderExplore(); return; }
+  const {i,lt}=locate(T), s=S[i], last=i===S.length-1;
+  ctx.globalAlpha=Math.min(P(lt,0,.45), last?1:1-P(lt,s.dur-.55,.55));
+  s.draw(lt); ctx.globalAlpha=1;
+  txt(`${i+1} · ${s.title}`,40,38,{size:15,color:'#555',align:'left',font:MONO});
+  updateCaption(i,lt);
+  fillEl.style.width=(T/TOTAL*100)+'%'; timeEl.textContent=`${fmt(T)} / ${fmt(TOTAL)}`;
+  chapBtns.forEach((b,k)=>b.classList.toggle('active',k===i));
+}
+function setPlaying(v){
+  playing=v; playBtn.textContent=v?'❚❚':'▶';
+  if(v){ setExplore(false); bigPlay.style.display='none'; if(T>=TOTAL) seek(0); capKey=null; } else stopVoice();
+}
+function seek(time){ T=clamp(time,0,TOTAL); capKey=null; stopVoice(); }
+function setExplore(v){
+  if(explore===v) return; explore=v; exBtn.classList.toggle('on',v); $('explorePanel').classList.toggle('show',v);
+  if(v){ if(playing) setPlaying(false); bigPlay.style.display='none';
+    capEl.textContent='Pick a service model. For each task, decide: does Harbourside look after it, or the provider? Then switch models and try the same task again.'; }
+  else capKey=null;
+}
+function frame(ts){
+  frameDt=lastTs!=null?(ts-lastTs)/1000:0;
+  if(playing){
+    let dt=Math.min(frameDt,.1);
+    if(voiceOn&&narrating()){ const h=HOLDS.find(x=>x>=T-1e-6); if(h!==undefined&&T+dt>=h) dt=Math.max(0,h-T); }
+    T+=dt;
+    if(T>=TOTAL){ T=TOTAL; if(!(voiceOn&&narrating())){ setPlaying(false); bigPlay.style.display='block'; bigPlay.textContent='↺'; } }
+  }
+  lastTs=ts; render(); requestAnimationFrame(frame);
+}
+cv.addEventListener('pointerdown',()=>{ if(!explore) setPlaying(!playing); });
+playBtn.onclick=()=>setPlaying(!playing);
+bigPlay.onclick=()=>setPlaying(true);
+$('restart').onclick=()=>{ seek(0); setPlaying(true); };
+voiceBtn.onclick=()=>{ voiceOn=!voiceOn; voiceBtn.textContent=voiceOn?'🔊 Voice on':'🔈 Voice off'; voiceBtn.classList.toggle('on',voiceOn); if(!voiceOn) stopVoice(); else capKey=null; };
+exBtn.onclick=()=>setExplore(!explore);
+document.querySelectorAll('.pick').forEach(b=>b.onclick=()=>{ QZ.model=+b.dataset.m; QZ.answer=null; document.querySelectorAll('.pick').forEach(x=>x.classList.toggle('on',x===b)); });
+$('exH').onclick=()=>answer(true); $('exP').onclick=()=>answer(false); $('exN').onclick=nextTask;
+$('bar').onclick=e=>{ setExplore(false); const r=$('bar').getBoundingClientRect(); seek((e.clientX-r.left)/r.width*TOTAL); };
+document.addEventListener('keydown',e=>{
+  if(['INPUT','SELECT'].includes(e.target.tagName)) return;
+  if(e.code==='Space'){ e.preventDefault(); setPlaying(!playing); }
+  if(e.code==='ArrowRight'){ const {i}=locate(T); if(i<S.length-1) seek(START[i+1]+.001); }
+  if(e.code==='ArrowLeft'){ const {i,lt}=locate(T); seek(START[lt<1.5&&i>0?i-1:i]+.001); }
+});
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
