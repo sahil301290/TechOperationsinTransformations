@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Where Does Our Data Go? · COM768 pre-lecture film</title>
+<style>
+:root{--navy:#1A2B49;--ink:#2E3A4B;--slate:#5F6B7A;--mute:#8D97A5;--rule:#DCE1E7;--line:#6E7B8C;--edge:#C8D0D9;--panel:#F6F8FA;--teal:#2B7A73;--tealbg:#E6F1EF;--amber:#B07A2C;--amberbg:#FBF5EA;--mono:Consolas,"SF Mono",Menlo,monospace}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:"Segoe UI","Helvetica Neue",Arial,sans-serif;background:#EDF0F3;color:var(--ink)}
+.wrap{max-width:max(480px,min(1240px,calc((100vh - 170px)*16/9 + 32px)));margin:16px auto 40px;padding:0 16px}
+header{display:flex;flex-wrap:wrap;align-items:baseline;gap:12px;margin-bottom:10px}
+header h1{margin:0;font-size:18px;color:var(--navy)}
+header span{font-size:13px;color:var(--mute)}
+/* player frame */
+.vp{border-radius:10px;overflow:hidden;background:#111A2B;box-shadow:0 2px 16px rgba(20,35,60,.14)}
+.screen{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;background:#fff;cursor:pointer}
+.stage{position:absolute;left:0;top:0;width:1280px;height:720px;transform-origin:0 0;background:#fff;overflow:hidden}
+.capbar{min-height:64px;display:flex;align-items:center;justify-content:center;padding:10px 24px;color:#fff;font-size:clamp(15px,2vw,21px);line-height:1.4;text-align:center}
+.capbar.wait{color:#A9B7C8;font-size:15px}
+.nocc .capbar{display:none}
+.vp:fullscreen{display:flex;flex-direction:column;border-radius:0;background:#000}
+.vp:fullscreen .screen{flex:1;aspect-ratio:auto;background:#000}
+.vp:fullscreen .capbar{min-height:96px;font-size:28px;background:#111A2B}
+.instant,.instant *{transition:none!important}
+/* scenes */
+.scn{position:absolute;inset:0;opacity:0;visibility:hidden;transition:opacity .7s ease,visibility 0s linear .7s}
+.scn.act{opacity:1;visibility:visible;transition:opacity .7s ease}
+.scn>*{position:absolute}
+.kick{left:80px;top:44px;font-size:14px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--teal)}
+.ttl{left:80px;top:64px;margin:0;font-size:38px;line-height:1.2;font-weight:700;color:var(--navy);letter-spacing:-.01em}
+.rule{left:80px;top:128px;width:1120px;height:1px;background:var(--rule)}
+.wires{left:0;top:0;width:1280px;height:720px;overflow:visible;pointer-events:none}
+.rv{opacity:0;transform:translateY(8px);transition:opacity .6s ease var(--rd,0s),transform .6s ease var(--rd,0s),background-color .45s ease var(--cd,0s),border-color .45s ease var(--cd,0s),color .45s ease var(--cd,0s),box-shadow .45s ease var(--cd,0s)}
+.rv.on{opacity:1;transform:none}
+.rv.on.dim{opacity:.32}
+.d3{--rd:.3s}.d6{--rd:.6s}.d9{--rd:.9s}.d12{--rd:1.2s}.d18{--rd:1.8s}
+.c8{--cd:.8s}.c16{--cd:1.6s}.wd{--cd:1.4s}.od{--cd:1s}
+.box{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;text-align:center;padding:8px 12px;background:#fff;border:1.5px solid var(--edge);border-radius:9px;box-shadow:0 1px 3px rgba(20,35,60,.07)}
+.box b{font-size:21px;font-weight:600;color:var(--navy)}
+.sub{display:grid;justify-items:center;font-size:15px;color:var(--slate)}
+.sub>.norm,.sub>.alt,.sub>.alt2{grid-area:1/1;transition:opacity .3s ease var(--cd,0s)}
+.sub>.alt,.sub>.alt2,.warn .sub>.norm,.ok .sub>.norm{opacity:0}
+.warn .sub>.alt,.ok .sub>.alt2{opacity:1}
+.box.hl,.box.hlb,.box.ok{border-color:var(--teal);background:var(--tealbg)}
+.box.hl{box-shadow:0 0 0 4px rgba(43,122,115,.13)}
+.box.warn{border-color:var(--amber);border-style:dashed;background:var(--amberbg)}
+.pill{height:28px;line-height:26px;border-radius:14px;text-align:center;white-space:nowrap;font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--edge);background:var(--panel);color:var(--slate)}
+.pill.teal{background:var(--tealbg);border-color:#A9CFC9;color:var(--teal)}
+.pill.amb{background:var(--amberbg);border-color:#E3C99B;color:var(--amber)}
+.pill.lc{text-transform:none;letter-spacing:0;font-size:14px;font-weight:500}
+.pill.mono{font-family:var(--mono)}
+.pill.crit{height:40px;line-height:38px;border-radius:8px;font-size:15px}
+.pill.hl{background:var(--teal);border-color:var(--teal);color:#fff}
+.tx{font-size:16px;color:var(--slate)}
+.tx.c{text-align:center}
+.tx.q{font-size:17px}.tx.q b{color:var(--navy);letter-spacing:.04em}
+.tx.mono{font-family:var(--mono);font-size:15px}
+.tx.quote{font-size:17px;font-style:italic;color:var(--ink)}
+.tx.small,.tx.lbl,.tx.fine,.tx.eg{font-size:13.5px;color:var(--mute)}
+.tx.lbl,.tx.fine{font-style:italic}
+.tx.chk{display:flex;align-items:center;gap:10px;color:var(--ink)}
+.sq{width:16px;height:16px;border:1.5px solid var(--amber);border-radius:3px}
+.tx.xm{font-size:26px;font-weight:700;line-height:1;color:var(--amber)}
+.tx.cap2{font-size:13px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)}
+.call{padding:10px 16px;font-size:16.5px;color:var(--ink);background:#FCF8F1;border:1px solid #EADBC2;border-left:4px solid var(--amber);border-radius:6px}
+.osl{text-align:center;font-size:21px;font-weight:700;color:var(--navy)}
+.osl.big{font-size:30px}
+.osl .rv{display:inline-block;margin:0 6px}
+.card{padding:12px 18px;background:var(--panel);border:1px solid var(--rule);border-radius:9px}
+.cl{margin-bottom:6px;font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--teal)}
+.cq{font-size:19px;font-weight:600;color:var(--navy)}
+.ans{display:inline-block;margin-top:6px;font-family:var(--mono);font-size:16px;font-weight:600;color:var(--teal)}
+.code{margin:0;font-family:var(--mono);font-size:15px;line-height:1.5;white-space:pre;color:var(--ink)}
+.tbl{background:#fff;border:1.5px solid var(--edge);border-radius:9px;overflow:hidden;box-shadow:0 1px 3px rgba(20,35,60,.07)}
+.th,.sh{height:40px;line-height:40px;padding:0 16px;background:#E9EEF3;font-size:15px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--navy);transition:background-color .45s ease var(--cd,0s),color .45s ease var(--cd,0s)}
+.tr{height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-top:1px solid #EEF1F4;font-family:var(--mono);font-size:15px;transition:background-color .45s}
+.tr em{font-style:normal;font-family:"Segoe UI",Arial,sans-serif;font-size:11.5px;font-weight:700;letter-spacing:.08em;color:var(--mute)}
+.tr.hl{background:var(--tealbg)}.tr.hl span,.tr.hl em{color:var(--teal);font-weight:700}
+.scard{background:#fff;border:1.5px solid var(--edge);border-radius:9px;overflow:hidden}
+.sm{padding:10px 16px 2px;font-size:18px;font-weight:600;color:var(--navy)}
+.scard ul{margin:2px 0 0;padding:0 16px 0 34px;font-size:14.5px;line-height:1.6;color:var(--slate)}
+.scard.hl{border-color:var(--teal);box-shadow:0 0 0 4px rgba(43,122,115,.13)}
+.scard.hl .sh{background:var(--tealbg);color:var(--teal)}
+.node{width:32px;height:32px;border-radius:50%;border:2px solid var(--teal);background:var(--tealbg)}
+/* moving tokens (nested legs give L-shaped paths) */
+.tok i{display:block;font-style:normal}
+.tok .l1{transition:transform var(--t1,.55s) ease-in-out}
+.tok .l2{transition:transform var(--t2,.6s) ease-in-out var(--t1,.55s)}
+.tok .l3{transition:transform var(--t3,.5s) ease-in-out calc(var(--t1,.55s) + var(--t2,.6s))}
+.tok.go .l1{transform:var(--l1,none)}.tok.go .l2{transform:var(--l2,none)}.tok.go .l3{transform:var(--l3,none)}
+.chip{display:block;height:28px;line-height:26px;padding:0 12px;border-radius:14px;white-space:nowrap;font-style:normal;font-size:13.5px;font-weight:600;color:#fff;background:var(--navy);box-shadow:0 2px 6px rgba(20,35,60,.25);transition:opacity .35s ease var(--fd,1.65s)}
+.tok.w150 .chip{width:150px;height:36px;line-height:34px;border-radius:8px;text-align:center;font-size:14px}
+.tok.amb .chip{background:var(--amber)}
+.tok.dot .chip{width:12px;height:12px;padding:0;border-radius:50%;background:var(--teal)}
+.tok.fade.go .chip{opacity:0}
+/* arrows */
+.ar{transition:opacity .5s}
+.ar .ln{fill:none;stroke:var(--line);stroke-width:2.2;stroke-linejoin:round;stroke-dasharray:1 1;stroke-dashoffset:1;transition:stroke-dashoffset .7s ease var(--dl,0s),stroke .4s}
+.ar.on .ln{stroke-dashoffset:0}
+.ar .hd{fill:var(--line);opacity:0;transition:opacity .2s ease calc(var(--dl,0s) + .6s)}
+.ar.on .hd{opacity:1}
+.ar.t .ln{stroke:var(--teal)}.ar.t .hd{fill:var(--teal)}
+.ar.w .ln{stroke:var(--amber)}.ar.w .hd{fill:var(--amber)}
+.ar.dash .ln{stroke-dasharray:7 6;stroke-dashoffset:0;opacity:0;transition:opacity .6s ease var(--dl,0s)}
+.ar.dash.on .ln{opacity:1}
+.ar.on.dim{opacity:.32}
+.gone{opacity:0!important}
+/* title and end cards */
+.tk0{left:80px;top:178px;font-size:15px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--teal)}
+.t0{left:80px;top:200px;margin:0;font-size:62px;line-height:1.1;font-weight:800;letter-spacing:-.015em;color:var(--navy)}
+.tbar{left:80px;top:292px;width:96px;height:4px;border-radius:2px;background:var(--teal)}
+.ts0{left:80px;top:314px;font-size:26px;font-style:italic;color:var(--slate)}
+.tm0{left:80px;top:366px;font-size:15px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)}
+.tn0{left:80px;top:556px;font-size:24px;font-weight:700;color:var(--navy)}
+.ta0{left:80px;top:590px;font-size:17px;color:var(--slate)}
+.qbox{padding:26px 34px;background:var(--panel);border:1px solid var(--rule);border-left:5px solid var(--teal);border-radius:8px}
+.qbox p{margin:0 0 12px;font-size:28px;line-height:1.35;font-weight:600;color:var(--navy)}
+.qbox p:last-child{margin:0}
+.ask{font-size:21px;color:var(--ink)}
+.cred{font-size:16px;line-height:1.7;color:var(--slate)}.cred b{color:var(--navy)}
+.cred .fine{font-size:13.5px;font-style:italic;color:var(--mute)}
+/* footer and start button inside the picture */
+.foot{position:absolute;left:80px;right:80px;top:686px;display:flex;align-items:center;justify-content:space-between;font-size:11.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--mute);transition:opacity .5s}
+.foot.hide{opacity:0}
+.fd i{display:inline-block;width:8px;height:8px;margin:0 5px;border-radius:50%;background:#CDD4DC;transition:background .4s,transform .4s}
+.fd i.done{background:var(--navy)}.fd i.cur{background:var(--teal);transform:scale(1.4)}
+.start{position:absolute;left:0;top:0;width:1280px;height:720px;z-index:6;margin:0;padding:0;border:0;background:transparent;cursor:pointer}
+.start span{position:absolute;left:580px;top:418px;width:120px;height:120px;border-radius:50%;background:var(--teal);box-shadow:0 6px 24px rgba(43,122,115,.35);transition:transform .2s}
+.start:hover span{transform:scale(1.06)}
+.start span::before{content:"";position:absolute;left:46px;top:36px;border-left:38px solid #fff;border-top:24px solid transparent;border-bottom:24px solid transparent}
+.started .start{display:none}
+/* controls */
+.ctl{display:flex;flex-direction:column;gap:10px;margin-top:14px;padding:12px 14px;background:#fff;border-radius:10px;box-shadow:0 1px 6px rgba(20,35,60,.08)}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+button,select{font:inherit;font-size:14px;color:var(--ink);background:#fff;border:1px solid #CBD3DC;border-radius:7px;padding:7px 12px;cursor:pointer}
+button:hover{border-color:var(--teal)}
+button:focus-visible,select:focus-visible{outline:3px solid rgba(43,122,115,.35);outline-offset:1px}
+button.pri{min-width:110px;font-weight:600;color:#fff;background:var(--teal);border-color:var(--teal)}
+button[aria-pressed="true"]{color:var(--teal);background:var(--tealbg);border-color:var(--teal)}
+label{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--slate)}
+select{max-width:300px}
+.dots{gap:5px}
+.dots button{padding:4px 10px;font-size:12.5px;border-radius:12px}
+.dots button.cur{color:#fff;background:var(--teal);border-color:var(--teal)}
+.pos{margin-left:auto;font-size:13px;color:var(--mute)}
+.hint{min-height:18px;font-size:13px;color:var(--slate)}
+.keys{font-size:12px;color:var(--mute)}
+.trp{position:relative;max-height:340px;overflow:auto;margin-top:12px;padding:6px 22px 14px;background:#fff;border-radius:10px;box-shadow:0 1px 6px rgba(20,35,60,.08);font-size:15px;line-height:1.6}
+.trp[hidden]{display:none}
+.trp h4{margin:14px 0 4px;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--teal)}
+.trp p{margin:0}
+.tl{cursor:pointer;border-radius:3px}.tl:hover{background:#EEF3F6}.tl.cur{background:var(--tealbg);color:var(--navy)}
+@media (prefers-reduced-motion:reduce){.stage *{transition-duration:.01s!important;transition-delay:0s!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header><h1>Where Does Our Data Go?</h1><span>COM768 · Lecture 3 pre-lecture film</span></header>
+<div class="vp" id="vp">
+ <div class="screen" id="screen" role="region" aria-label="Animated pre-lecture film. The full narration is available from the Transcript button.">
+  <div class="stage" id="stage">
+   <div class="foot hide" id="foot" aria-hidden="true"><span>COM768 / Pre-lecture film</span><span class="fd" id="fd"></span><span id="fn"></span></div>
+   <button class="start" id="bStart" aria-label="Play the film"><span></span></button>
+  </div>
+ </div>
+ <div class="capbar wait" id="cap">Press play to begin. You can choose a speaker and speed below.</div>
+</div>
+<div class="ctl">
+ <div class="row">
+  <button id="bPlay" class="pri">▶&#xFE0E; Play</button>
+  <button id="bBack" title="Previous line (←)">‹ Line</button>
+  <button id="bFwd" title="Next line (→)">Line ›</button>
+  <button id="bRestart">↺ Restart</button>
+  <button id="bFull">Full screen</button>
+  <span class="pos" id="pos"></span>
+ </div>
+ <div class="row dots" id="dots" role="group" aria-label="Scenes"></div>
+ <div class="row">
+  <label>Speaker <select id="sVoice"><option>Loading voices…</option></select></label>
+  <label>Speed <select id="sRate"><option value="0.75">0.75×</option><option value="0.9">0.9×</option><option value="1" selected>1×</option><option value="1.1">1.1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option></select></label>
+  <button id="bCC" aria-pressed="true">Captions</button>
+  <button id="bTr" aria-pressed="false">Transcript</button>
+ </div>
+ <div class="hint" id="hint"></div>
+ <div class="keys">Keys: Space play/pause · ← → previous/next line · Shift + ← → previous/next scene · C captions · T transcript · F full screen (Esc to leave)</div>
+</div>
+<div class="trp" id="trP" hidden></div>
+</div>
+<script>
+/* ===== 1. Settings you may want to edit ===== */
+const CONFIG={
+ lecturer:'Sahil Sharma, PhD, AFHEA',
+ affiliation:'School of Computing · Ulster University',
+ module:'COM768 · Technology Operations in Transformation',
+ film:'Lecture 3 · Pre-lecture film',
+ title:'Where Does Our Data Go?',
+ subtitle:'From an AI prediction to a dependable business system.'
+};
+/* Spoken forms: captions show the written word, the voice says the replacement.
+   Change 'S Q L' to 'sequel' if that is how you say it in class. */
+const SAY=[[/\bSQL\b/g,'S Q L'],[/\bAPI\b/g,'A P I']];
+
+/* ===== 2. Building blocks ===== */
+const $=id=>document.getElementById(id);
+const add=(c,ids)=>ids.forEach(i=>{const e=$(i);if(e)e.classList.add(...c.split(' '))});
+const rem=(c,ids)=>ids.forEach(i=>{const e=$(i);if(e)e.classList.remove(...c.split(' '))});
+const on=(...i)=>add('on',i),hl=(...i)=>add('hl',i),dim=(...i)=>add('dim',i),go=(...i)=>add('go',i),gone=(...i)=>add('gone',i);
+const px=(x,y,w,h)=>`left:${x}px;top:${y}px;`+(w?`width:${w}px;`:'')+(h?`height:${h}px;`:'');
+const B=(id,x,y,w,h,t,s='',c='')=>`<div id="${id}" class="box rv ${c}" style="${px(x,y,w,h)}"><b>${t}</b>${s?`<span class="sub">${s}</span>`:''}</div>`;
+const P=(id,x,y,w,t,c='')=>`<div id="${id}" class="pill rv ${c}" style="${px(x,y,w)}">${t}</div>`;
+const T=(id,x,y,w,t,c='')=>`<div id="${id}" class="tx rv ${c}" style="${px(x,y,w)}">${t}</div>`;
+const CO=(id,y,t)=>`<div id="${id}" class="call rv" style="${px(200,y,880)}">${t}</div>`;
+const OS=(id,t,y=575)=>`<div id="${id}" class="osl rv" style="${px(80,y,1120)}">${t}</div>`;
+const K=(id,x,y,t,legs,c='',o={})=>`<div id="${id}" class="tok rv ${c}" style="${px(x,y)}${legs.map((l,n)=>`--l${n+1}:translate(${l[0]}px,${l[1]}px);`).join('')}${o.fd!=null?`--fd:${o.fd}s;`:''}${o.t1?`--t1:${o.t1}s;`:''}"><i class="l1"><i class="l2"><i class="l3"><em class="chip">${t}</em></i></i></i></div>`;
+const TB=(id,x,y,w,title,rows,c='')=>`<div id="${id}" class="tbl rv ${c}" style="${px(x,y,w)}"><div class="th">${title}</div>${rows.map(r=>`<div class="tr" id="${r[0]}"><span>${r[1]}</span>${r[2]?`<em>${r[2]}</em>`:''}</div>`).join('')}</div>`;
+const SCD=(id,x,y,head,main,items,c='')=>`<div id="${id}" class="scard rv ${c}" style="${px(x,y,340,140)}"><div class="sh">${head}</div><div class="sm">${main}</div><ul>${items.map(i=>`<li>${i}</li>`).join('')}</ul></div>`;
+function arrow([id,pts,cls='',dl=0]){
+ const p=pts.map(q=>q.slice());let head='';
+ if(!/nohead/.test(cls)){
+  const [x2,y2]=p[p.length-1],[x1,y1]=p[p.length-2];
+  const L=Math.hypot(x2-x1,y2-y1)||1,ux=(x2-x1)/L,uy=(y2-y1)/L,bx=x2-11*ux,by=y2-11*uy;
+  head=`<polygon class="hd" points="${x2},${y2} ${bx-5.5*uy},${by+5.5*ux} ${bx+5.5*uy},${by-5.5*ux}"/>`;
+  p[p.length-1]=[x2-8*ux,y2-8*uy];
+ }
+ return `<g id="${id}" class="ar ${cls}" style="--dl:${dl}s"><path class="ln" d="M${p.map(q=>q.join(' ')).join(' L')}"${/dash/.test(cls)?'':' pathLength="1"'}/>${head}</g>`;
+}
+const DECO=`<svg class="wires" viewBox="0 0 1280 720" aria-hidden="true"><g fill="#fff" stroke="#CBD3DD" stroke-width="2"><path fill="none" d="M1000 332H1060M1120 354V386M930 386H1170M930 386V418M1050 386V418M1170 386V418"/><rect x="880" y="310" width="120" height="44" rx="7"/><rect x="1060" y="310" width="120" height="44" rx="7" fill="#E6F1EF" stroke="#9CC3BE"/><rect x="880" y="418" width="100" height="40" rx="7"/><rect x="1000" y="418" width="100" height="40" rx="7"/><rect x="1120" y="418" width="100" height="40" rx="7"/></g></svg>`;
+
+/* ===== 3. The film: scenes, narration (t) and on-screen actions (a) ===== */
+const SC=[
+{id:'s0',head:false,label:'Intro',title:CONFIG.title,
+ html:`<div class="tk0">${CONFIG.module}</div><h2 class="t0">${CONFIG.title}</h2><div class="tbar"></div><div class="ts0">${CONFIG.subtitle}</div><div class="tm0">${CONFIG.film}</div><div class="tn0">${CONFIG.lecturer}</div><div class="ta0">${CONFIG.affiliation}</div>`+DECO,
+ cues:[{t:'Where does our data go? A short film to prepare you for Lecture 3.'}]},
+
+{id:'s1',label:'1 · Recap',kick:'01 · Previously in COM768',title:'What have we built so far?',
+ html:T('s1q1',80,194,310,'<b>WHERE</b> does it run?','q c')+T('s1q2',485,194,310,'<b>HOW</b> does it communicate?','q c')+T('s1q3',890,194,310,'<b>WHERE</b> does the data go?','q c')
+ +B('s1b1',80,232,310,106,'01&ensp;PLACE IT','Device · Edge · Cloud')+B('s1b2',485,232,310,106,'02&ensp;CONNECT IT','API · REST · Scale')+B('s1b3',890,232,310,106,'03&ensp;STORE &amp; MOVE','Data · Storage · Recovery')
+ +P('s1p1',160,356,150,'Already learnt')+P('s1p2',565,356,150,'Already learnt')+P('s1p3',970,356,150,'Today','teal')
+ +T('s1ex',485,404,310,'message in → <b>FINANCE</b> out','mono c')
+ +CO('s1co',468,'A working prediction does not yet guarantee a dependable business record.'),
+ ar:[['s1a1',[[390,285],[485,285]]],['s1a2',[[795,285],[890,285]],'t']],
+ cues:[
+  {t:'In our first lecture, we explored where computing happens: on a device, on local infrastructure, at the edge, or in the cloud.',a:()=>on('s1q1','s1b1')},
+  {t:'In our second lecture, we connected a simple machine-learning model to a web API.',a:()=>on('s1a1','s1q2','s1b2')},
+  {t:'A staff message went in, and a department prediction came back.',a:()=>on('s1ex')},
+  {t:'That was an important step.',a:()=>on('s1p1','s1p2')},
+  {t:'But here’s the question for today: does a working prediction mean we’ve built a dependable business system?',a:()=>{on('s1a2','s1q3','s1b3','s1p3');hl('s1b3')}},
+  {t:'Not yet.',a:()=>on('s1co')},
+  {t:'We still need to decide what information to keep, where it belongs, and how it moves safely between systems.',a:()=>dim('s1b1','s1b2','s1q1','s1q2','s1ex','s1a1')}
+ ]},
+
+{id:'s2',label:'2 · Problem',kick:'02 · The Harbourside business problem',title:'A prediction is not a saved ticket',
+ html:B('s2pt',80,215,270,100,'Staff portal','Expenses request')
+ +T('s2qt',50,334,330,'“My travel expenses have not been reimbursed.”','quote c')
+ +B('s2rt',505,215,270,100,'AI Router API','<span id="s2rs" class="rv d9">FINANCE · 0.91</span>')
+ +P('s2ok',520,334,240,'HTTP 200 = request processed','teal lc mono')
+ +T('s2nt',490,376,300,'Teaching classifier: no ticket storage','small c')
+ +B('s2rc',930,215,270,100,'Business record?','Not yet stored','warn')
+ +T('s2c1',968,334,220,'<i class="sq"></i>Durable record','chk')+T('s2c2',968,366,220,'<i class="sq"></i>Clear owner','chk d3')+T('s2c3',968,398,220,'<i class="sq"></i>Checkable history','chk d6')
+ +CO('s2co',468,'Who owns this request tomorrow? Who can retrieve its history?')
+ +OS('s2os','HTTP 200 means the request worked. It does not mean the ticket was saved.')
+ +K('s2tk',300,251,'message',[[205,0]],'fade',{fd:.6}),
+ ar:[['s2a1',[[350,265],[505,265]]],['s2a2',[[775,265],[930,265]],'dash']],
+ cues:[
+  {t:'Imagine an employee writes, ‘My travel expenses have not been reimbursed.’',a:()=>on('s2pt','s2qt','s2tk')},
+  {t:'Our Harbourside teaching API processes the message and suggests Finance, with a confidence score.',a:()=>{on('s2a1','s2rt','s2rs');go('s2tk')}},
+  {t:'The web request succeeds.',a:()=>on('s2ok')},
+  {t:'But tomorrow, when the employee asks for an update, where will Finance find the request?',a:()=>on('s2a2','s2rc')},
+  {t:'Who owns it? Who changed its status?',a:()=>on('s2co')},
+  {t:'The teaching API demonstrated classification, not a complete records system.',a:()=>on('s2nt')},
+  {t:'A business cannot rely on a prediction alone.',a:()=>on('s2os')},
+  {t:'It needs a durable record, a clear owner, and a history that can be checked.',a:()=>on('s2c1','s2c2','s2c3')}
+ ]},
+
+{id:'s3',label:'3 · Records',kick:'03 · Organising reliable records',title:'Organise records so they can be trusted',
+ html:P('s3db',80,150,230,'Relational database','teal')
+ +TB('s3st',80,195,280,'Staff',[['s3st1','staff_id','PK'],['s3st2','display_name','']])
+ +TB('s3tk',500,195,280,'Tickets',[['s3tk1','ticket_id','PK'],['s3tk2','staff_id','FK'],['s3tk3','dept_id','FK'],['s3tk4','status','']],'d3')
+ +TB('s3dp',920,195,280,'Departments',[['s3dp1','dept_id','PK'],['s3dp2','dept_name','']],'d6')
+ +T('s3lL',395,224,70,'ID match','lbl c')+T('s3lR',815,224,70,'ID match','lbl c')
+ +`<div id="s3q" class="card rv" style="${px(80,400,560)}"><div class="cl">Ask a question with SQL</div><div class="cq">Which Finance requests are still open?</div><div id="s3qa" class="ans rv d12">→ Ticket 101 · Open</div></div>`
+ +`<div id="s3d" class="card rv" style="${px(700,400,500)}"><div class="cl">Document model · flexible fields</div><pre class="code">{ "ticket_id": 104, "team": "ESTATES",\n  "location": { "building": "Ward 4" } }</pre></div>`
+ +CO('s3co',512,'One ticket can be connected to a person and team without repeating every detail.')
+ +OS('s3os','Structured records + identifiers + relationships = information that can be retrieved and checked.'),
+ ar:[['s3aL',[[500,288],[430,288],[430,254],[360,254]],'t'],['s3aR',[[780,322],[850,322],[850,254],[920,254]],'t']],
+ cues:[
+  {t:'One option is a relational database.',a:()=>on('s3db')},
+  {t:'Think of three connected tables: staff, service requests, and departments.',a:()=>on('s3st','s3tk','s3dp')},
+  {t:'Each ticket has its own identifier.',a:()=>hl('s3tk1')},
+  {t:'It can refer to the employee who raised it and the team responsible for it.',a:()=>{hl('s3tk2','s3tk3','s3st1','s3dp1');on('s3aL','s3aR','s3lL','s3lR')}},
+  {t:'We connect those records using keys instead of copying the same employee details into every row.',a:()=>on('s3co')},
+  {t:'SQL, or Structured Query Language, helps us ask questions such as, ‘Which Finance requests are still open?’',a:()=>{on('s3q','s3qa');hl('s3tk4')}},
+  {t:'Other applications may benefit from a document database when records have more flexible fields.',a:()=>on('s3d')},
+  {t:'The business need determines the choice, not fashion.',a:()=>on('s3os')}
+ ]},
+
+{id:'s4',label:'4 · Workflow',kick:'04 · An order is a business workflow',title:'An order succeeds only when the business flow succeeds',
+ html:B('s4cu',80,255,220,96,'Customer','Places order')
+ +B('s4sv',400,255,260,96,'Ordering service','Saves order')
+ +P('s4py',420,370,220,'✓ Payment confirmed','teal lc')
+ +`<div id="s4nd" class="node rv d3" style="${px(729,287)}"></div>`
+ +T('s4nl',664,278,64,'Event','lbl c d3')
+ +B('s4rs',850,190,330,86,'Restaurant','<span class="norm">Receives order event</span><span class="alt">Order never received</span>','d12')
+ +B('s4dl',850,335,330,86,'Delivery','Receives assignment event','d18')
+ +T('s4x',786,214,28,'✕','xm c')
+ +T('s4dc',80,440,560,'Fictional teaching example: not a description of any real company’s system.','fine')
+ +CO('s4co',512,'What if the customer pays but the restaurant never receives the order?')
+ +OS('s4os','One customer action → multiple business processes → several failure points.')
+ +K('s4tk',262,289,'order',[[150,0]],'fade',{fd:.6})
+ +K('s4pR',739,297,'',[[0,-70],[100,0]],'dot fade',{fd:1.2})+K('s4pD',739,297,'',[[0,75],[100,0]],'dot fade',{fd:1.2}),
+ ar:[['s4a1',[[300,303],[400,303]]],['s4a2',[[660,303],[729,303]],'',.2],['s4aR',[[745,287],[745,233],[850,233]],'t',.8],['s4aD',[[745,319],[745,378],[850,378]],'t',1.4],['s4aX',[[745,287],[745,233],[850,233]],'dash w']],
+ cues:[
+  {t:'Now think about ordering dinner through a food-delivery app.',a:()=>on('s4cu','s4dc','s4tk')},
+  {t:'To the customer, it looks like one action: place an order.',a:()=>{on('s4a1','s4sv');go('s4tk')}},
+  {t:'But behind the scenes, the application may need to record the order, confirm payment, notify the restaurant, and arrange delivery.',a:()=>on('s4py','s4a2','s4nd','s4nl','s4aR','s4aD','s4rs','s4dl')},
+  {t:'Some work happens immediately; other work may be triggered by events or messages.',a:()=>{on('s4pR','s4pD');go('s4pR','s4pD')}},
+  {t:'Here is the business test: what if the customer is charged, but the restaurant never sees the order?',a:()=>{gone('s4aR');on('s4aX','s4x','s4co');add('warn',['s4rs'])}},
+  {t:'Technology choices about transactions, messaging and failure handling become customer-service and financial decisions.',a:()=>on('s4os')},
+  {t:'They are not just technical preferences.'}
+ ]},
+
+{id:'s5',label:'5 · Storage',kick:'05 · Different types of storage',title:'Different information needs different storage',
+ html:B('s5pt',440,146,400,64,'Staff portal','One request, three kinds of information')
+ +SCD('s5c1',80,330,'SQL database','Ticket + status',['Structured records','Queries + relationships'],'c16')
+ +SCD('s5c2',470,330,'Object store','Photo + document',['Large files','Stored by object key'],'d3 c8')
+ +SCD('s5c3',860,330,'Message queue','Notification job',['Work pending','Processed asynchronously'],'d6 c16')
+ +T('s5l1',290,296,160,'search + update','lbl')+T('s5l2',652,296,160,'store a large file','lbl')+T('s5l3',866,296,160,'process later','lbl')
+ +T('s5e1',80,478,340,'e.g. Azure SQL Database','eg c')+T('s5e2',470,478,340,'e.g. Azure Blob Storage','eg c d3')+T('s5e3',860,478,340,'e.g. Azure Queue Storage','eg c d6')
+ +CO('s5co',514,'The choice is driven by access, reliability, cost and the job the data must do.')
+ +OS('s5os','Business record → Database &ensp;|&ensp; Document → Object storage &ensp;|&ensp; Pending task → Queue')
+ +K('s5r',405,226,'Ticket + status',[[0,46],[-230,0],[0,62]],'w150 fade',{fd:1.75})
+ +K('s5a',565,226,'Receipt PDF',[[0,108]],'w150 fade',{fd:.8,t1:.8})
+ +K('s5n',725,226,'Notify Finance',[[0,46],[230,0],[0,62]],'w150 fade',{fd:1.75}),
+ ar:[['s5aR',[[480,262],[480,290],[250,290],[250,330]],'t'],['s5aA',[[640,262],[640,330]],'t'],['s5aN',[[800,262],[800,290],[1030,290],[1030,330]],'t']],
+ cues:[
+  {t:'So should we put every piece of information in the same place?',a:()=>on('s5pt','s5r','s5a','s5n')},
+  {t:'Usually not.',a:()=>on('s5c1','s5c2','s5c3')},
+  {t:'A ticket and its status fit naturally into a database because people need to search and update those records.',a:()=>{on('s5aR','s5l1');go('s5r');hl('s5c1')}},
+  {t:'A scanned letter or photograph may fit better in object storage.',a:()=>{on('s5aA','s5l2');go('s5a');hl('s5c2')}},
+  {t:'A request to send a notification can be placed on a message queue and processed in the background.',a:()=>{on('s5aN','s5l3');go('s5n');hl('s5c3')}},
+  {t:'Azure offers managed services for these different needs, but the principle is not unique to Azure.',a:()=>on('s5e1','s5e2','s5e3')},
+  {t:'The decision depends on how the information will be used, how quickly it must be available, how much it costs, and what happens if it is lost.',a:()=>on('s5co','s5os')}
+ ]},
+
+{id:'s6',label:'6 · Recovery',kick:'06 · Moving and recovering information',title:'The business must survive loss of connectivity',
+ html:B('s6tb',80,176,260,96,'Nurse’s tablet','Approved local copy')
+ +B('s6sy',510,176,260,96,'Synchronisation','When network returns')
+ +B('s6cl',940,176,260,96,'Cloud record','<span class="norm">Validated update</span><span class="alt">Damaged by a synced mistake</span><span class="alt2">Restored from backup</span>')
+ +P('s6g1',135,286,150,'Offline','amb')+P('s6g2',565,286,150,'Reconnected','teal')+P('s6g3',995,286,150,'Backed up')
+ +P('s6t1',95,330,230,'Tablet: awaiting review','amb lc')+P('s6rl',490,330,300,'Detect conflict → apply agreed rule','teal lc')+P('s6t2',955,330,230,'Server: assigned to HR','amb lc d3')
+ +B('s6bk',940,404,260,70,'Backup','Tested recovery points')
+ +T('s6lb',1140,376,80,'restore','lbl c')
+ +CO('s6co',506,'Synchronisation handles new changes; backups support recovery from lost or corrupted data.')
+ +OS('s6os','Offline availability ≠ automatic correctness. Synchronisation ≠ backup.')
+ +K('s6mk',150,210,'✕ mistaken delete',[[790,0]],'amb fade',{fd:1.5,t1:1.3}),
+ ar:[['s6nt',[[340,224],[940,224]],'nohead'],['s6nl',[[340,224],[940,224]],'dash w nohead'],['s6a1',[[340,224],[510,224]],'t'],['s6a2',[[770,224],[940,224]],'t',.4],['s6aB',[[1200,440],[1230,440],[1230,224],[1201,224]],'t']],
+ cues:[
+  {t:'Return to the community nurse from our first lecture.',a:()=>on('s6tb','s6cl','s6nt')},
+  {t:'Suppose the nurse is on a home visit and the connection disappears.',a:()=>{gone('s6nt');on('s6nl','s6g1')}},
+  {t:'If the application is designed for approved offline use, it may keep the necessary information securely on the device and synchronise when the network returns.',a:()=>{gone('s6nl');on('s6sy','s6a1','s6a2','s6g2')}},
+  {t:'But what if someone else changed the same record meanwhile?',a:()=>on('s6t1','s6t2')},
+  {t:'Now the system needs a clear conflict rule.',a:()=>{on('s6rl');hl('s6sy')}},
+  {t:'And synchronisation is not the same as backup.',a:()=>on('s6bk','s6g3')},
+  {t:'A synchronised mistake can spread,',a:()=>{on('s6mk');go('s6mk');add('warn wd',['s6cl'])}},
+  {t:'while a tested backup can help restore damaged or deleted information.',a:()=>{on('s6aB','s6lb');rem('warn wd',['s6cl']);add('ok od',['s6cl'])}},
+  {t:'These decisions affect continuity, privacy, staff workload and trust.',a:()=>on('s6co','s6os')}
+ ]},
+
+{id:'s7',label:'7 · Decision',kick:'07 · The business decision',title:'Technology choices are business decisions',
+ html:B('s7pt',150,158,260,80,'Staff portal','User requests')
+ +B('s7ap',510,158,260,80,'API + ML','Prediction','hlb')
+ +B('s7s1',115,310,260,72,'SQL records','Ticket, status, team','d6')
+ +B('s7s2',510,310,260,72,'Files + images','Linked by ticket ID','d9')
+ +B('s7s3',905,310,260,72,'Background jobs','Queue → worker','d12')
+ +T('s7l1',255,278,140,'write ticket','lbl d6')+T('s7l2',650,278,120,'put file','lbl d9')+T('s7l3',1045,278,140,'enqueue job','lbl d12')
+ +T('s7cl',121,410,400,'Evaluation criteria','cap2')
+ +P('s7k1',121,438,190,'Cost','crit')+P('s7k2',333,438,190,'Reliability','crit d3')+P('s7k3',545,438,190,'Privacy','crit d6')+P('s7k4',757,438,190,'Recovery','crit d9')+P('s7k5',969,438,190,'Ownership','crit d12')
+ +`<div class="osl big" style="${px(80,540,1120)}"><span id="s7w1" class="rv">Choose it.</span> <span id="s7w2" class="rv">Fund it.</span> <span id="s7w3" class="rv">Depend on it.</span> <span id="s7w4" class="rv">Challenge it.</span></div>`,
+ ar:[['s7a0',[[410,198],[510,198]]],['s7aL',[[640,238],[640,272],[245,272],[245,310]],'',.2],['s7aM',[[640,238],[640,310]],'',.5],['s7aR',[[640,238],[640,272],[1035,272],[1035,310]],'',.8]],
+ cues:[
+  {t:'By now, our simple API has become a business-technology design question.',a:()=>on('s7pt','s7a0','s7ap')},
+  {t:'We need somewhere for staff to submit requests, an interface and model to interpret them, reliable records, suitable file storage, and a way to handle background work.',a:()=>on('s7aL','s7aM','s7aR','s7s1','s7s2','s7s3','s7l1','s7l2','s7l3')},
+  {t:'But there is no single architecture that is best for every organisation.',a:()=>dim('s7pt','s7ap','s7s1','s7s2','s7s3','s7l1','s7l2','s7l3','s7a0','s7aL','s7aM','s7aR')},
+  {t:'A business must ask: Why choose this technology?',a:()=>on('s7cl','s7k1','s7k2','s7k3','s7k4','s7k5','s7w1')},
+  {t:'Why pay for it?',a:()=>{on('s7w2');hl('s7k1')}},
+  {t:'Can we depend on it when demand increases or a component fails?',a:()=>{on('s7w3');hl('s7k2','s7k4')}},
+  {t:'And when should we reject it because the cost, risk or complexity is too high?',a:()=>{on('s7w4');hl('s7k3','s7k5')}},
+  {t:'Those are the questions we’ll work through together in Lecture 3.'}
+ ]},
+
+{id:'s8',label:'Close',kick:'Before the lecture',title:'One question to bring with you',
+ html:`<div id="s8qb" class="qbox rv" style="${px(80,176,1120)}"><p id="s8q1" class="rv">An AI service can return the right answer during a demonstration.</p><p id="s8q2" class="rv">What else must be true before an organisation can rely on it every day?</p></div>`
+ +`<div id="s8as" class="ask rv" style="${px(80,400,1120)}">Bring one example from Finance, HR, consulting or operations.</div>`
+ +`<div id="s8cr" class="cred rv" style="${px(80,470,1120)}"><b>${CONFIG.lecturer}</b> · ${CONFIG.affiliation}<br>${CONFIG.module} · ${CONFIG.film}<br><span class="fine">Harbourside Health and the food-ordering service are fictional teaching examples. Narration uses your browser’s text-to-speech voice.</span></div>`,
+ cues:[
+  {t:'Here’s one question to bring with you.',a:()=>on('s8qb')},
+  {t:'An AI service can return the right answer during a demonstration.',a:()=>on('s8q1')},
+  {t:'What else must be true before an organisation can rely on it every day?',a:()=>on('s8q2')},
+  {t:'Bring one example from Finance, HR, consulting or operations.',a:()=>on('s8as')},
+  {t:'See you in the lecture.',a:()=>on('s8cr')},
+  {w:2500}
+ ]}
+];
+
+/* ===== 4. Player ===== */
+const stage=$('stage'),screenEl=$('screen'),vp=$('vp'),cap=$('cap'),sel=$('sVoice'),rateSel=$('sRate'),trP=$('trP');
+const TTS='speechSynthesis' in window&&'SpeechSynthesisUtterance' in window;
+const store={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
+let cur=0,ci=-1,playing=false,finished=false,doneCue=false,gen=0,timer=null,voice=null,voices=[],liveU=null,lastCancel=0;
+let rate=parseFloat(store.get('com768-rate'))||1;
+if(![...rateSel.options].some(o=>+o.value===rate))rate=1;
+rateSel.value=String(rate);
+
+stage.insertAdjacentHTML('afterbegin',SC.map(s=>`<section class="scn" id="${s.id}" aria-hidden="true"></section>`).join(''));
+function build(i){const s=SC[i];$(s.id).innerHTML=(s.head===false?'':`<div class="kick">${s.kick}</div><h2 class="ttl">${s.title}</h2><div class="rule"></div>`)+(s.ar?`<svg class="wires" viewBox="0 0 1280 720" aria-hidden="true">${s.ar.map(arrow).join('')}</svg>`:'')+s.html;}
+function show(i){SC.forEach((s,k)=>{const e=$(s.id);e.classList.toggle('act',k===i);e.setAttribute('aria-hidden',String(k!==i))});}
+function fit(){const w=screenEl.clientWidth,h=screenEl.clientHeight;if(!w||!h)return;const k=Math.min(w/1280,h/720);stage.style.transform=`translate(${(w-1280*k)/2}px,${(h-720*k)/2}px) scale(${k})`;}
+
+function halt(){gen++;clearTimeout(timer);if(TTS){speechSynthesis.cancel();lastCancel=performance.now();}}
+function seek(s,c){
+ halt();finished=false;cur=s;build(s);
+ const el=$(SC[s].id);void el.offsetWidth;
+ stage.classList.add('instant');
+ for(let k=0;k<c;k++){const a=SC[s].cues[k].a;if(a)a();}
+ void el.offsetWidth;stage.classList.remove('instant');void el.offsetWidth;
+ show(s);enter(c);
+}
+function enter(c){const q=SC[cur].cues[c];ci=c;doneCue=false;if(q.a)q.a();setCap(q.t||'');ui();if(playing)speakCue();}
+function speakCue(){const g=gen,q=SC[cur].cues[ci];const next=()=>{if(g!==gen)return;doneCue=true;advance();};if(q.t)say(q.t,g,next);else timer=setTimeout(next,(q.w||1500)/rate);}
+function advance(){
+ const g=gen;
+ if(ci+1<SC[cur].cues.length)timer=setTimeout(()=>{if(g===gen)enter(ci+1)},320);
+ else if(cur+1<SC.length)timer=setTimeout(()=>{if(g===gen)seek(cur+1,0)},950);
+ else{playing=false;finished=true;setCap('End of film. Press Replay to watch again, or choose a scene below.');ui();}
+}
+
+/* speech */
+const NOVELTY=/^(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Deranged|Good News|Hysterical|Jester|Organ|Pipe Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox)\b/i;
+const good=v=>/natural|neural|enhanced|premium/i.test(v.name);
+const words=t=>t.split(/\s+/).length;
+function spoken(t){let s=t.replace(/[‘“”]/g,'').replace(/’/g,"'");SAY.forEach(([r,v])=>{s=s.replace(r,v)});return s;}
+function chunks(t){if(t.length<=140)return[t];const out=[];let buf='';(t.match(/[^,;:]+[,;:]?\s*/g)||[t]).forEach(p=>{if(buf&&(buf+p).length>140){out.push(buf.trim());buf=p}else buf+=p});if(buf.trim())out.push(buf.trim());return out;}
+function say(text,g,done){
+ if(!TTS||!voice){timer=setTimeout(()=>{if(g===gen)done()},Math.max(1800,words(text)*400/rate));return;}
+ const parts=chunks(spoken(text));let i=0;
+ const one=()=>{
+  if(g!==gen)return;
+  if(i>=parts.length){done();return;}
+  const u=new SpeechSynthesisUtterance(parts[i++]);
+  u.voice=voice;u.lang=voice.lang;u.rate=rate;liveU=u;
+  let fin=false,wd=0;
+  const end=failed=>{
+   if(fin)return;fin=true;clearTimeout(wd);if(g!==gen)return;
+   if(failed){note('That voice did not respond, so the captions are carrying on. Try another speaker.');setTimeout(one,Math.max(1500,words(u.text)*400/rate));}
+   else setTimeout(one,40);
+  };
+  wd=setTimeout(()=>{if(!fin){speechSynthesis.cancel();lastCancel=performance.now();end(false);}},Math.max(6000,u.text.length*110/rate+4000));
+  u.onend=()=>end(false);
+  u.onerror=e=>end(!/interrupt|cancel/i.test(e.error||''));
+  speechSynthesis.speak(u);
+ };
+ setTimeout(one,Math.max(0,150-(performance.now()-lastCancel)));
+}
+function nice(v){return v.name.replace(/^(Microsoft|Google|Apple)\s+/,'').replace(/\s+-\s+.*$/,'').replace(/&/g,'&amp;').replace(/</g,'&lt;')+' ('+v.lang.replace('_','-')+')';}
+function loadVoices(){
+ const all=TTS?speechSynthesis.getVoices():[];if(!all.length)return;
+ let list=all.filter(v=>/^en([-_]|$)/i.test(v.lang)&&!NOVELTY.test(v.name));if(!list.length)list=all.slice();
+ const rank=v=>(/^en[-_]GB/i.test(v.lang)?0:/^en[-_]IE/i.test(v.lang)?1:/^en[-_]US/i.test(v.lang)?2:3)*10-(good(v)?5:0);
+ list.sort((a,b)=>rank(a)-rank(b)||a.name.localeCompare(b.name));
+ voices=list;
+ sel.innerHTML=list.map((v,i)=>`<option value="${i}">${good(v)?'★ ':''}${nice(v)}</option>`).join('')+'<option value="none">No voice (captions only)</option>';
+ const saved=store.get('com768-voice'),found=list.findIndex(v=>v.name===saved);
+ sel.value=saved==='none'?'none':String(Math.max(0,found));
+ voice=sel.value==='none'?null:list[+sel.value];
+ liveCaps();
+ note(list.some(good)?'★ marks the most natural-sounding voices on this device.':'Tip: Microsoft Edge usually offers the most natural-sounding voices.');
+}
+if(TTS){loadVoices();if('onvoiceschanged' in speechSynthesis)speechSynthesis.onvoiceschanged=loadVoices;}
+setTimeout(()=>{if(!voices.length){sel.innerHTML='<option value="none">No voice available</option>';voice=null;liveCaps();note('No speech voices were found in this browser, so the captions will play on their own. Edge or Chrome usually provide narration.');}},2500);
+
+/* controls */
+sel.onchange=()=>{voice=sel.value==='none'?null:(voices[+sel.value]||null);store.set('com768-voice',voice?voice.name:'none');liveCaps();restartCue();};
+rateSel.onchange=()=>{rate=+rateSel.value;store.set('com768-rate',String(rate));restartCue();};
+function restartCue(){if(!playing||ci<0)return;halt();if(doneCue)advance();else speakCue();}
+function unlock(){if(TTS&&voice){try{const u=new SpeechSynthesisUtterance(' ');u.volume=0;speechSynthesis.speak(u);}catch(e){}}}
+function play(){unlock();vp.classList.add('started');playing=true;if(finished||ci<0){seek(0,0);return;}ui();if(doneCue)advance();else speakCue();}
+function pause(){playing=false;halt();ui();}
+function toggle(){if(playing)pause();else play();}
+function step(d){
+ if(ci<0){if(d>0){vp.classList.add('started');seek(0,0);}return;}
+ vp.classList.add('started');
+ if(d>0){if(ci+1<SC[cur].cues.length){halt();enter(ci+1);}else if(cur+1<SC.length)seek(cur+1,0);}
+ else if(ci>0)seek(cur,ci-1);
+ else if(cur>0)seek(cur-1,SC[cur-1].cues.length-1);
+ else seek(0,0);
+}
+function scene(i){if(i<0||i>=SC.length)return;vp.classList.add('started');seek(i,0);}
+function restart(){if(!playing){unlock();playing=true;}vp.classList.add('started');seek(0,0);}
+function setCap(t){cap.classList.remove('wait');cap.textContent=t;}
+function liveCaps(){cap.setAttribute('aria-live',voice?'off':'polite');}
+function note(t){$('hint').textContent=t||'';}
+function toggleCC(){const off=vp.classList.toggle('nocc');$('bCC').setAttribute('aria-pressed',String(!off));store.set('com768-cc',off?'0':'1');}
+function toggleTr(){trP.hidden=!trP.hidden;$('bTr').setAttribute('aria-pressed',String(!trP.hidden));ui();}
+function full(){const d=document;if(d.fullscreenElement||d.webkitFullscreenElement){(d.exitFullscreen||d.webkitExitFullscreen).call(d);return;}const r=vp.requestFullscreen||vp.webkitRequestFullscreen;if(r){const p=r.call(vp);if(p&&p.catch)p.catch(()=>{});}}
+
+/* scene buttons, transcript, footer dots */
+$('dots').innerHTML=SC.map((s,i)=>`<button data-i="${i}" title="${s.title}">${s.label}</button>`).join('');
+$('dots').onclick=e=>{const b=e.target.closest('button');if(!b)return;scene(+b.dataset.i);if(!playing)play();};
+trP.innerHTML=SC.map((s,i)=>{const ls=s.cues.map((q,c)=>q.t?`<span class="tl" data-s="${i}" data-c="${c}">${q.t}</span>`:'').filter(Boolean);return ls.length?`<h4>${s.kick||s.title}</h4><p>${ls.join(' ')}</p>`:'';}).join('');
+trP.onclick=e=>{const t=e.target.closest('.tl');if(!t)return;seek(+t.dataset.s,+t.dataset.c);vp.classList.add('started');if(!playing)play();};
+$('fd').innerHTML='<i></i>'.repeat(7);
+const fdots=[...$('fd').children];
+function ui(){
+ $('bPlay').textContent=finished?'↺ Replay':playing?'❚❚ Pause':'▶\uFE0E Play';
+ [...$('dots').children].forEach((x,i)=>x.classList.toggle('cur',i===cur));
+ const main=cur>=1&&cur<=7;
+ $('foot').classList.toggle('hide',!main);
+ fdots.forEach((d,i)=>{d.classList.toggle('done',i<cur-1);d.classList.toggle('cur',i===cur-1)});
+ $('fn').textContent=main?String(cur).padStart(2,'0')+' / 07':'';
+ $('pos').textContent=ci<0?'':`${SC[cur].label} · line ${ci+1} of ${SC[cur].cues.length}`;
+ const old=trP.querySelector('.tl.cur');if(old)old.classList.remove('cur');
+ const t=trP.querySelector(`.tl[data-s="${cur}"][data-c="${ci}"]`);
+ if(t){t.classList.add('cur');if(!trP.hidden)trP.scrollTop=Math.max(0,t.offsetTop-trP.clientHeight/3);}
+}
+
+/* events */
+$('bPlay').onclick=toggle;
+$('bStart').onclick=e=>{e.stopPropagation();play();};
+screenEl.onclick=toggle;
+$('bBack').onclick=()=>step(-1);$('bFwd').onclick=()=>step(1);
+$('bRestart').onclick=restart;$('bCC').onclick=toggleCC;$('bTr').onclick=toggleTr;$('bFull').onclick=full;
+if(!(vp.requestFullscreen||vp.webkitRequestFullscreen))$('bFull').hidden=true;
+document.addEventListener('keydown',e=>{
+ const tg=e.target.tagName;
+ if(tg==='SELECT'||tg==='INPUT'||tg==='TEXTAREA'||e.altKey||e.ctrlKey||e.metaKey)return;
+ if((e.key===' '||e.key==='Enter')&&tg==='BUTTON')return;
+ const k=(e.key||'').toLowerCase();
+ if(k===' '||k==='k'){e.preventDefault();toggle();}
+ else if(k==='arrowright'){e.preventDefault();if(e.shiftKey)scene(cur+1);else step(1);}
+ else if(k==='arrowleft'){e.preventDefault();if(e.shiftKey)scene(cur-1);else step(-1);}
+ else if(k==='c')toggleCC();
+ else if(k==='t')toggleTr();
+ else if(k==='f')full();
+});
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&playing)pause();});
+addEventListener('pagehide',()=>{if(TTS)speechSynthesis.cancel();});
+if('ResizeObserver' in window)new ResizeObserver(fit).observe(screenEl);
+addEventListener('resize',fit);
+document.addEventListener('fullscreenchange',fit);
+if(store.get('com768-cc')==='0'){vp.classList.add('nocc');$('bCC').setAttribute('aria-pressed','false');}
+build(0);show(0);fit();ui();
+</script>
+</body>
+</html>
